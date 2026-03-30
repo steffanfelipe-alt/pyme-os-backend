@@ -4,3 +4,11 @@ sqlalchemy==2.0.40
 psycopg2-binary==2.9.10
 python-dotenv==1.1.0
 pydantic==2.11.1
+python-jose[cryptography]==3.3.0
+bcrypt==4.2.0
+alembic==1.13.1
+apscheduler==3.10.4
+python-multipart==0.0.20
+anthropic>=0.40.0
+pypdf>=4.0.0
+Pillow>=10.0.0
