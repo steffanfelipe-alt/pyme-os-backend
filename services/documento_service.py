@@ -1,8 +1,11 @@
 import base64
+import calendar
+import hashlib
 import json
 import logging
 import os
 import uuid
+from datetime import date
 from io import BytesIO
 from pathlib import Path
 from typing import Optional
@@ -16,7 +19,7 @@ from sqlalchemy.orm import Session
 from models.cliente import Cliente
 from models.documento import Documento, EstadoDocumento, TipoDocumento
 from models.empleado import Empleado  # noqa: F401 — resuelve FK
-from models.vencimiento import Vencimiento  # noqa: F401 — resuelve FK
+from models.vencimiento import EstadoVencimiento, TipoVencimiento, Vencimiento  # noqa: F401 — resuelve FK
 from schemas.documento import DocumentoResponse, DocumentoUpdate
 
 logger = logging.getLogger("pymeos")
@@ -29,10 +32,51 @@ MAX_TEXT_CHARS = 8000
 EXTENSIONES_VALIDAS = {".pdf", ".jpg", ".jpeg", ".png"}
 CONFIANZA_MIN_PROCESADO = 0.5
 
+MAPEO_DOCUMENTO_VENCIMIENTO: dict[str, list[str]] = {
+    "factura":            ["iva", "iibb", "monotributo"],
+    "ddjj":               ["iva", "ddjj_anual", "ganancias", "bienes_personales", "iibb"],
+    "liquidacion_sueldo": ["sueldos_cargas"],
+    "balance":            ["ganancias", "bienes_personales", "ddjj_anual"],
+    "recibo":             ["autonomos"],
+    "extracto_bancario":  [],
+    "contrato":           [],
+    "otro":               [],
+}
+
+# Mapeo inverso: tipo_vencimiento → tipos de documento que lo alimentan
+# Se deriva de MAPEO_DOCUMENTO_VENCIMIENTO — no modificar manualmente
+MAPEO_VENCIMIENTO_DOCUMENTO: dict[str, list[str]] = {}
+for _tipo_doc, _tipos_venc in MAPEO_DOCUMENTO_VENCIMIENTO.items():
+    for _tipo_venc in _tipos_venc:
+        MAPEO_VENCIMIENTO_DOCUMENTO.setdefault(_tipo_venc, []).append(_tipo_doc)
+
 _PROMPT_CLASIFICACION = """Sos un asistente contable argentino. Analizá este documento y extraé la información solicitada.
-Tipos de documento posibles: factura, liquidacion_sueldo, ddjj, recibo, extracto_bancario, balance, contrato, otro.
+
+Tipos de documento válidos: factura, liquidacion_sueldo, ddjj, recibo, extracto_bancario, balance, contrato, otro.
+
+Tipos de vencimiento fiscal argentino: iva, ddjj_anual, monotributo, iibb, ganancias, bienes_personales, autonomos, sueldos_cargas, otro.
+
+Mapeo de referencia (tipo de documento → vencimientos que alimenta):
+- factura → iva, iibb, monotributo
+- ddjj → iva, ddjj_anual, ganancias, bienes_personales, iibb
+- liquidacion_sueldo → sueldos_cargas
+- balance → ganancias, bienes_personales, ddjj_anual
+- recibo → autonomos
+- extracto_bancario → (ninguno)
+- contrato → (ninguno)
+- otro → (ninguno)
+
+Usá el mapeo como guía, pero si el documento es claramente de un tipo que alimenta vencimientos distintos a los listados, ajustá según el contenido real.
+
 Respondé ÚNICAMENTE con JSON válido, sin texto adicional ni bloques de código:
-{"tipo":"...","confianza":0.95,"resumen":"descripcion breve en español","periodo":"YYYY-MM o null","cuit_detectado":"XX-XXXXXXXX-X o null","monto":15000.00 o null}"""
+{"tipo":"...","confianza":0.95,"resumen":"descripcion breve en español","periodo":"YYYY-MM o null","cuit_detectado":"XX-XXXXXXXX-X o null","monto":15000.00,"vencimientos_relacionados":["iva","iibb"]}
+
+El campo vencimientos_relacionados debe ser una lista de strings con los valores exactos del enum. Lista vacía [] si el documento no está relacionado con ningún vencimiento fiscal."""
+
+
+def _calcular_hash(contenido: bytes) -> str:
+    """Calcula SHA-256 del contenido binario del archivo."""
+    return hashlib.sha256(contenido).hexdigest()
 
 
 def _directorio_cliente(cliente_id: int) -> Path:
@@ -144,6 +188,24 @@ async def subir_documento(
     if len(contenido) > MAX_FILE_BYTES:
         raise HTTPException(status_code=400, detail="Archivo demasiado grande. Máximo 10 MB.")
 
+    # Detección de duplicados por hash SHA-256
+    file_hash = _calcular_hash(contenido)
+    doc_existente = db.query(Documento).filter(
+        Documento.cliente_id == cliente_id,
+        Documento.file_hash == file_hash,
+        Documento.activo == True,
+    ).first()
+    if doc_existente:
+        raise HTTPException(
+            status_code=409,
+            detail={
+                "mensaje": "Este archivo ya fue subido anteriormente.",
+                "documento_id": doc_existente.id,
+                "nombre_original": doc_existente.nombre_original,
+                "subido_el": doc_existente.created_at.isoformat(),
+            }
+        )
+
     # Guardar en disco
     directorio = _directorio_cliente(cliente_id)
     nombre_archivo = f"{uuid.uuid4().hex}_{nombre_original}"
@@ -158,6 +220,7 @@ async def subir_documento(
         ruta_archivo=str(ruta.as_posix()),
         tipo_documento=TipoDocumento.otro,
         estado=EstadoDocumento.pendiente,
+        file_hash=file_hash,
     )
     db.add(doc)
     db.commit()
@@ -173,10 +236,22 @@ async def subir_documento(
         doc.tipo_documento = tipo
         doc.confianza = confianza
         doc.resumen = resultado.get("resumen")
+        # Extraer vencimientos_relacionados con fallback al mapeo hardcodeado
+        vencimientos_ia = resultado.get("vencimientos_relacionados")
+        if isinstance(vencimientos_ia, list) and len(vencimientos_ia) > 0:
+            tipos_validos = {t.value for t in TipoVencimiento}
+            vencimientos_relacionados = [v for v in vencimientos_ia if v in tipos_validos]
+            # Si todos los valores eran inválidos, usar fallback
+            if not vencimientos_relacionados:
+                vencimientos_relacionados = MAPEO_DOCUMENTO_VENCIMIENTO.get(tipo_str, [])
+        else:
+            vencimientos_relacionados = MAPEO_DOCUMENTO_VENCIMIENTO.get(tipo_str, [])
+
         doc.metadatos = {
             "periodo": resultado.get("periodo"),
             "cuit_detectado": resultado.get("cuit_detectado"),
             "monto": resultado.get("monto"),
+            "vencimientos_relacionados": vencimientos_relacionados,
         }
         doc.estado = estado
     except Exception as e:
@@ -224,3 +299,95 @@ def eliminar_documento(db: Session, doc_id: int) -> None:
         logger.info("Archivo físico eliminado: %s", ruta)
     db.delete(doc)
     db.commit()
+
+
+def obtener_checklist(
+    db: Session,
+    cliente_id: int,
+    periodo: str,  # formato "YYYY-MM"
+) -> dict:
+    """
+    Dado un cliente y un período fiscal, retorna qué documentos
+    llegaron y cuáles faltan para cubrir los vencimientos activos.
+    """
+    cliente = db.query(Cliente).filter(
+        Cliente.id == cliente_id,
+        Cliente.activo == True,
+    ).first()
+    if not cliente:
+        raise HTTPException(status_code=404, detail="Cliente no encontrado")
+
+    if len(periodo) != 7 or periodo[4] != "-":
+        raise HTTPException(
+            status_code=400,
+            detail="Formato de período inválido. Usar YYYY-MM.",
+        )
+    try:
+        anio, mes = int(periodo[:4]), int(periodo[5:7])
+        if mes < 1 or mes > 12:
+            raise ValueError()
+    except (ValueError, IndexError):
+        raise HTTPException(
+            status_code=400,
+            detail="Formato de período inválido. Usar YYYY-MM.",
+        )
+
+    primer_dia = date(anio, mes, 1)
+    ultimo_dia = date(anio, mes, calendar.monthrange(anio, mes)[1])
+
+    # Paso 1 — Vencimientos activos del cliente en el período
+    vencimientos_activos = db.query(Vencimiento).filter(
+        Vencimiento.cliente_id == cliente_id,
+        Vencimiento.estado == EstadoVencimiento.pendiente,
+        Vencimiento.fecha_vencimiento >= primer_dia,
+        Vencimiento.fecha_vencimiento <= ultimo_dia,
+    ).all()
+
+    # Paso 2 — Tipos de documento requeridos para esos vencimientos
+    tipos_requeridos: set[str] = set()
+    vencimientos_info = []
+    for v in vencimientos_activos:
+        docs_necesarios = MAPEO_VENCIMIENTO_DOCUMENTO.get(v.tipo.value, [])
+        tipos_requeridos.update(docs_necesarios)
+        vencimientos_info.append({
+            "id": v.id,
+            "tipo": v.tipo.value,
+            "fecha_vencimiento": v.fecha_vencimiento.isoformat(),
+            "documentos_necesarios": docs_necesarios,
+        })
+
+    # Paso 3 — Documentos recibidos del cliente en el período
+    # Filtrado en Python para compatibilidad con SQLite y PostgreSQL
+    todos_docs = db.query(Documento).filter(
+        Documento.cliente_id == cliente_id,
+        Documento.activo == True,
+    ).all()
+    documentos_periodo = [
+        d for d in todos_docs
+        if d.metadatos and d.metadatos.get("periodo") == periodo
+    ]
+
+    tipos_recibidos: set[str] = {d.tipo_documento.value for d in documentos_periodo}
+
+    # Paso 4 — Cruzar requeridos vs recibidos
+    faltantes = sorted(tipos_requeridos - tipos_recibidos)
+    recibidos = sorted(tipos_requeridos & tipos_recibidos)
+    extras = sorted(tipos_recibidos - tipos_requeridos)
+
+    # Paso 5 — Completitud
+    completitud_pct = (
+        len(recibidos) / len(tipos_requeridos)
+        if tipos_requeridos else 1.0
+    )
+
+    return {
+        "cliente_id": cliente_id,
+        "periodo": periodo,
+        "vencimientos_activos": vencimientos_info,
+        "tipos_requeridos": sorted(tipos_requeridos),
+        "recibidos": recibidos,
+        "faltantes": faltantes,
+        "extras": extras,
+        "completitud_pct": round(completitud_pct, 2),
+        "completo": len(faltantes) == 0,
+    }

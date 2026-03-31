@@ -6,6 +6,25 @@ from pydantic import BaseModel
 from models.documento import EstadoDocumento, TipoDocumento
 
 
+class VencimientoChecklistItem(BaseModel):
+    id: int
+    tipo: str
+    fecha_vencimiento: str
+    documentos_necesarios: list[str]
+
+
+class ChecklistResponse(BaseModel):
+    cliente_id: int
+    periodo: str
+    vencimientos_activos: list[VencimientoChecklistItem]
+    tipos_requeridos: list[str]
+    recibidos: list[str]
+    faltantes: list[str]
+    extras: list[str]
+    completitud_pct: float
+    completo: bool
+
+
 class DocumentoCreate(BaseModel):
     vencimiento_id: Optional[int] = None
 
@@ -27,6 +46,7 @@ class DocumentoResponse(BaseModel):
     metadatos: Optional[dict]
     estado: EstadoDocumento
     activo: bool
+    file_hash: Optional[str] = None
     created_at: datetime
     updated_at: datetime
 

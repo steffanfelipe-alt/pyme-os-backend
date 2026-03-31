@@ -22,6 +22,8 @@ import models.vencimiento
 import models.tarea
 import models.plantilla_vencimiento
 import models.documento
+import models.rentabilidad
+import models.alerta
 
 target_metadata = Base.metadata
 

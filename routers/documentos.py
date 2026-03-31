@@ -5,7 +5,7 @@ from sqlalchemy.orm import Session
 
 from auth import get_current_user
 from database import get_db
-from schemas.documento import DocumentoResponse, DocumentoUpdate
+from schemas.documento import ChecklistResponse, DocumentoResponse, DocumentoUpdate
 from services import documento_service
 
 router = APIRouter(tags=["Documentos"])
@@ -49,6 +49,23 @@ def actualizar_documento(
     current_user: dict = Depends(get_current_user),
 ):
     return documento_service.actualizar_documento(db, doc_id, data)
+
+
+@router.get(
+    "/api/clientes/{cliente_id}/documentos/checklist",
+    response_model=ChecklistResponse,
+)
+def checklist_documentacion(
+    cliente_id: int,
+    periodo: str,
+    db: Session = Depends(get_db),
+    current_user: dict = Depends(get_current_user),
+):
+    """
+    Retorna el estado de documentación de un cliente para un período fiscal.
+    Indica qué documentos llegaron, cuáles faltan, y el % de completitud.
+    """
+    return documento_service.obtener_checklist(db, cliente_id, periodo)
 
 
 @router.delete(

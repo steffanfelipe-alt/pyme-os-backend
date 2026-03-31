@@ -9,7 +9,7 @@ from fastapi.responses import JSONResponse
 from sqlalchemy import text
 
 from database import Base, engine
-from routers import auth_router, clientes, dashboard, documentos, empleados, plantillas, tareas, vencimientos
+from routers import alerts, auth_router, clientes, dashboard, documentos, empleados, plantillas, profitability, risk, tareas, vencimientos, workload
 
 # --- Logging ---
 LOG_LEVEL = os.environ.get("LOG_LEVEL", "INFO").upper()
@@ -44,6 +44,10 @@ app.include_router(tareas.router)
 app.include_router(plantillas.router)
 app.include_router(dashboard.router)
 app.include_router(documentos.router)
+app.include_router(workload.router)
+app.include_router(profitability.router)
+app.include_router(alerts.router)
+app.include_router(risk.router)
 
 
 # --- Manejo global de errores ---
