@@ -1,7 +1,7 @@
 from datetime import datetime
 from decimal import Decimal
 
-from sqlalchemy import DateTime, Numeric, String, func
+from sqlalchemy import DateTime, Integer, Numeric, String, func
 from sqlalchemy.orm import Mapped, mapped_column
 
 from database import Base
@@ -20,6 +20,9 @@ class StudioConfig(Base):
     zona_horaria: Mapped[str] = mapped_column(
         String(50), default="America/Argentina/Buenos_Aires", nullable=False
     )
+    # Umbral de instancias completadas requeridas antes de activar el optimizador.
+    # Configurable por estudio; default 5.
+    umbral_instancias_optimizador: Mapped[int] = mapped_column(Integer, default=5, nullable=False)
     updated_at: Mapped[datetime] = mapped_column(
         DateTime, server_default=func.now(), onupdate=func.now(), nullable=False
     )

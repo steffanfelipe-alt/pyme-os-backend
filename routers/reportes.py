@@ -1,6 +1,6 @@
 from typing import Optional
 
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
@@ -39,6 +39,25 @@ def actualizar_config(
     return reportes_service.actualizar_config(
         db, data.tarifa_hora_pesos, data.moneda, data.zona_horaria
     )
+
+
+class OptimizadorConfigUpdate(BaseModel):
+    umbral_instancias: int
+
+
+@router.patch("/config/optimizador")
+def actualizar_config_optimizador(
+    data: OptimizadorConfigUpdate,
+    db: Session = Depends(get_db),
+    current_user: dict = Depends(solo_dueno),
+):
+    """
+    Actualiza el umbral mínimo de instancias completadas para que el optimizador
+    recalcule automáticamente los tiempos estimados. Rango válido: 1-50.
+    """
+    if not (1 <= data.umbral_instancias <= 50):
+        raise HTTPException(status_code=422, detail="El umbral debe estar entre 1 y 50.")
+    return reportes_service.actualizar_umbral_optimizador(db, data.umbral_instancias)
 
 
 # ─── Reporte 1: Carga por empleado ───────────────────────────────────────────
@@ -115,3 +134,15 @@ def reporte_resumen(
     Consume datos ya calculados — no recalcula todo de cero.
     """
     return reportes_service.reporte_resumen(db, periodo)
+
+
+@router.get("/madurez")
+def reporte_madurez(
+    db: Session = Depends(get_db),
+    current_user: dict = Depends(solo_dueno),
+):
+    """
+    Diagnóstico de madurez del estudio según las 4 etapas de SYSTEMology:
+    Survival / Stationary / Scalable / Saleable.
+    """
+    return reportes_service.reporte_madurez(db)

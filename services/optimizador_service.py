@@ -65,37 +65,59 @@ Descripción del proceso:
     return _limpiar_json(mensaje.content[0].text)
 
 
+_SYSTEM_PROMPT_OPTIMIZADOR = """Sos un experto en optimización de procesos para estudios contables argentinos (firmas de 5 a 50 empleados que brindan servicios de contabilidad, impuestos y laboral).
+
+Tu marco de análisis es el Critical Client Flow: evaluás cada proceso desde la perspectiva del impacto en la experiencia del cliente del estudio, y si su demora o error genera incumplimientos fiscales (vencimientos AFIP, IIBB, Monotributo).
+
+Criterios de recomendación en orden de prioridad:
+1. Reducir riesgo de vencimientos fiscales (AFIP, IIBB, Monotributo, Ganancias)
+2. Reducir tiempo total del proceso
+3. Reducir dependencia de una sola persona (eliminar cuellos de botella individuales)
+4. Identificar qué pasos son automatizables con n8n u otras herramientas de bajo código
+
+Respondé SIEMPRE con un objeto JSON válido y nada más. Sin texto adicional, sin bloques markdown."""
+
+
 def analizar_pasos_automatizabilidad(pasos: list[dict]) -> dict:
     """
     Clasifica cada paso del proceso por nivel de automatizabilidad.
-    Retorna análisis con herramienta sugerida y justificación.
+    Retorna análisis enriquecido: resumen, pasos_criticos, sugerencias, riesgo_fiscal, automatizable por paso.
     """
     pasos_texto = "\n".join(
         f"{p.get('orden', i+1)}. {p.get('titulo', '')} — {p.get('descripcion', '')}"
         for i, p in enumerate(pasos)
     )
 
-    prompt = f"""Sos un experto en automatización de procesos contables en Argentina.
-Analizá cada paso y clasificá su automatizabilidad.
+    prompt = f"""Analizá cada paso del proceso y clasificá su automatizabilidad.
 
-Devolvé ÚNICAMENTE este JSON, sin texto adicional ni bloques markdown:
+Devolvé ÚNICAMENTE este JSON con exactamente estos campos:
 {{
   "resumen": str,
+  "pasos_criticos": [str],
+  "sugerencias": [str],
+  "automatizable": bool,
+  "riesgo_fiscal": bool,
   "pasos": [
     {{
       "orden": int,
-      "automatizabilidad": str,
+      "automatizable": str,
       "herramienta_sugerida": str | null,
       "justificacion": str,
+      "riesgo_fiscal": str,
       "ahorro_estimado_minutos": int
     }}
   ],
   "ahorro_total_horas_mes": float
 }}
 
-automatizabilidad: "si" | "parcial" | "no"
-herramienta_sugerida: nombre de herramienta (n8n, Make, Zapier, Python script, etc.) o null si no es automatizable.
-ahorro_total_horas_mes: horas mensuales estimadas que se ahorrarían si se automatizan todos los pasos posibles.
+automatizable (raíz): true si al menos un paso del proceso puede automatizarse con n8n.
+riesgo_fiscal (raíz): true si algún paso tiene alto riesgo de error fiscal si se automatiza mal.
+automatizable (por paso): "si" | "parcial" | "no"
+herramienta_sugerida: herramienta concreta (n8n, Make, Zapier, Python script, etc.) o null.
+riesgo_fiscal (por paso): "alto" | "medio" | "bajo"
+pasos_criticos: títulos de pasos que NO deben automatizarse por impacto fiscal.
+sugerencias: recomendaciones de implementación para el estudio contable.
+ahorro_total_horas_mes: horas mensuales estimadas si se automatizan todos los pasos posibles.
 
 Pasos del proceso:
 {pasos_texto}"""
@@ -103,7 +125,8 @@ Pasos del proceso:
     client = anthropic.Anthropic()
     mensaje = client.messages.create(
         model=_MODELO,
-        max_tokens=1024,
+        max_tokens=1500,
+        system=_SYSTEM_PROMPT_OPTIMIZADOR,
         messages=[{"role": "user", "content": prompt}],
     )
     return _limpiar_json(mensaje.content[0].text)

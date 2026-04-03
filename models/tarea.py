@@ -54,4 +54,9 @@ class Tarea(Base):
         DateTime, server_default=func.now(), onupdate=func.now(), nullable=False
     )
 
+    # FK nullable — vincula la tarea a un paso específico de una instancia de proceso
+    proceso_instancia_paso_id: Mapped[int | None] = mapped_column(
+        Integer, ForeignKey("proceso_pasos_instancia.id"), nullable=True
+    )
+
     sesiones = relationship("TareaSesion", back_populates="tarea", cascade="all, delete-orphan")

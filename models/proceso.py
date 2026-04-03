@@ -108,6 +108,12 @@ class ProcesoPasoInstancia(Base):
     asignado_a: Mapped[int | None] = mapped_column(Integer, ForeignKey("empleados.id"), nullable=True)
 
 
+class EstadoRevisionAutomatizacion(str, enum.Enum):
+    pendiente = "pendiente"
+    aprobada = "aprobada"
+    descartada = "descartada"
+
+
 class Automatizacion(Base):
     __tablename__ = "automatizaciones"
 
@@ -120,6 +126,14 @@ class Automatizacion(Base):
     estado: Mapped[EstadoAutomatizacion] = mapped_column(
         Enum(EstadoAutomatizacion), default=EstadoAutomatizacion.borrador, nullable=False
     )
+    # Ciclo de vida de revisión
+    estado_revision: Mapped[EstadoRevisionAutomatizacion] = mapped_column(
+        Enum(EstadoRevisionAutomatizacion),
+        default=EstadoRevisionAutomatizacion.pendiente,
+        nullable=False,
+    )
+    aprobado_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    motivo_descarte: Mapped[str | None] = mapped_column(Text, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now(), nullable=False)
     updated_at: Mapped[datetime] = mapped_column(
         DateTime, server_default=func.now(), onupdate=func.now(), nullable=False

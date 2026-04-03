@@ -3,11 +3,12 @@ CRUD de Automatizacion — sin llamadas a Claude API.
 La lógica de IA vive en optimizador_service.py.
 """
 import logging
+from datetime import datetime
 
 from fastapi import HTTPException
 from sqlalchemy.orm import Session
 
-from models.proceso import Automatizacion, ProcesoTemplate
+from models.proceso import Automatizacion, EstadoRevisionAutomatizacion, ProcesoTemplate
 from schemas.automatizacion import AutomatizacionUpdate
 
 logger = logging.getLogger("pymeos")
@@ -83,3 +84,30 @@ def eliminar_automatizacion(db: Session, automatizacion_id: int) -> None:
     aut = obtener_automatizacion(db, automatizacion_id)
     db.delete(aut)
     db.commit()
+
+
+def listar_pendientes_revision(db: Session) -> list[Automatizacion]:
+    return (
+        db.query(Automatizacion)
+        .filter(Automatizacion.estado_revision == EstadoRevisionAutomatizacion.pendiente)
+        .order_by(Automatizacion.created_at.desc())
+        .all()
+    )
+
+
+def aprobar_automatizacion(db: Session, automatizacion_id: int) -> Automatizacion:
+    aut = obtener_automatizacion(db, automatizacion_id)
+    aut.estado_revision = EstadoRevisionAutomatizacion.aprobada
+    aut.aprobado_at = datetime.utcnow()
+    db.commit()
+    db.refresh(aut)
+    return aut
+
+
+def descartar_automatizacion(db: Session, automatizacion_id: int, motivo: str | None) -> Automatizacion:
+    aut = obtener_automatizacion(db, automatizacion_id)
+    aut.estado_revision = EstadoRevisionAutomatizacion.descartada
+    aut.motivo_descarte = motivo
+    db.commit()
+    db.refresh(aut)
+    return aut

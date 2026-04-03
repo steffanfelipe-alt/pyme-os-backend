@@ -3,7 +3,7 @@ from typing import Any, Optional
 
 from pydantic import BaseModel
 
-from models.proceso import EstadoAutomatizacion
+from models.proceso import EstadoAutomatizacion, EstadoRevisionAutomatizacion
 
 
 class AutomatizacionAnalisisRequest(BaseModel):
@@ -19,6 +19,10 @@ class AutomatizacionUpdate(BaseModel):
     ahorro_horas_mes: Optional[float] = None
 
 
+class DescartarRequest(BaseModel):
+    motivo_descarte: Optional[str] = None
+
+
 class AutomatizacionResponse(BaseModel):
     id: int
     template_id: int
@@ -27,6 +31,9 @@ class AutomatizacionResponse(BaseModel):
     ahorro_horas_mes: float
     herramienta: str
     estado: EstadoAutomatizacion
+    estado_revision: EstadoRevisionAutomatizacion
+    aprobado_at: Optional[datetime]
+    motivo_descarte: Optional[str]
     created_at: datetime
     updated_at: datetime
 

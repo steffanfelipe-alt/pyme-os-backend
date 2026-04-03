@@ -253,6 +253,7 @@ def avanzar_paso_instancia(
     db: Session,
     paso_id: int,
     data: ProcesoPasoInstanciaUpdate,
+    empleado_id: Optional[int] = None,
 ) -> ProcesoPasoInstancia:
     paso = db.query(ProcesoPasoInstancia).filter(ProcesoPasoInstancia.id == paso_id).first()
     if not paso:
@@ -260,6 +261,7 @@ def avanzar_paso_instancia(
 
     if data.estado is not None:
         _verificar_secuencialidad(db, paso, data.estado)
+        _verificar_confirmacion_sop(db, paso, data.estado, empleado_id)
 
         if data.estado == EstadoPasoInstancia.en_progreso:
             if paso.fecha_inicio is None:
@@ -288,6 +290,59 @@ def avanzar_paso_instancia(
     _recalcular_progreso(db, paso.instancia_id)
 
     return paso
+
+
+def _verificar_confirmacion_sop(
+    db: Session,
+    paso: ProcesoPasoInstancia,
+    nuevo_estado: EstadoPasoInstancia,
+    empleado_id: Optional[int],
+) -> None:
+    """Si el proceso tiene SOP activo vinculado y el paso requiere confirmación de lectura, verificarla."""
+    if nuevo_estado not in (EstadoPasoInstancia.en_progreso, EstadoPasoInstancia.completado):
+        return
+    if empleado_id is None:
+        return
+
+    try:
+        from models.sop_documento import SopDocumento, SopPaso, EstadoSop
+        from services.sop_asistido_service import verificar_confirmacion_lectura
+
+        instancia = db.query(ProcesoInstancia).filter(
+            ProcesoInstancia.id == paso.instancia_id
+        ).first()
+        if not instancia:
+            return
+
+        sop = (
+            db.query(SopDocumento)
+            .filter(
+                SopDocumento.proceso_id == instancia.template_id,
+                SopDocumento.estado == EstadoSop.activo,
+            )
+            .first()
+        )
+        if not sop:
+            return
+
+        sop_paso = (
+            db.query(SopPaso)
+            .filter(SopPaso.sop_id == sop.id, SopPaso.orden == paso.orden)
+            .first()
+        )
+        if not sop_paso or not sop_paso.requiere_confirmacion_lectura:
+            return
+
+        tiene_confirmacion = verificar_confirmacion_lectura(db, sop_paso.id, empleado_id)
+        if not tiene_confirmacion:
+            raise HTTPException(
+                status_code=409,
+                detail="Este paso requiere que confirmes la lectura del SOP antes de avanzar.",
+            )
+    except HTTPException:
+        raise
+    except Exception:
+        pass  # No bloquear el flujo por errores inesperados en la verificación
 
 
 def _verificar_secuencialidad(
@@ -348,11 +403,12 @@ def _recalcular_progreso(db: Session, instancia_id: int) -> None:
 def _recalcular_estimados_template(db: Session, template_id: int) -> None:
     """
     Recalcula tiempo_estimado_minutos del template basado en instancias completadas.
-    Solo se ejecuta si hay 5+ instancias completadas con datos reales.
-
-    # TODO: umbral configurable por studio. Por ahora fijo en 5 instancias completadas.
+    Solo se ejecuta si hay umbral_instancias_optimizador+ instancias completadas con datos reales.
+    El umbral se lee de studio_config (configurable por estudio, default 5).
     """
-    UMBRAL = 5
+    from models.studio_config import StudioConfig
+    config = db.query(StudioConfig).first()
+    UMBRAL = config.umbral_instancias_optimizador if config else 5
     try:
         instancias = (
             db.query(ProcesoInstancia)

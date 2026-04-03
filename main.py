@@ -9,7 +9,7 @@ from fastapi.responses import JSONResponse
 from sqlalchemy import text
 
 from database import Base, engine
-from routers import alerts, auth_router, automatizaciones, clientes, conocimiento, dashboard, documentos, emails, empleados, plantillas, procesos, profitability, reportes, reports, risk, tareas, vencimientos, workload
+from routers import alerts, auth_router, automatizaciones, clientes, conocimiento, dashboard, documentos, emails, empleados, plantillas, procesos, profitability, reportes, reports, risk, sop_asistido, tareas, vencimientos, workload
 
 # --- Logging ---
 LOG_LEVEL = os.environ.get("LOG_LEVEL", "INFO").upper()
@@ -53,6 +53,7 @@ app.include_router(emails.router)
 app.include_router(procesos.router)
 app.include_router(conocimiento.router)
 app.include_router(automatizaciones.router)
+app.include_router(sop_asistido.router)
 app.include_router(reportes.router)
 
 

@@ -106,6 +106,7 @@ class ProcesoPasoInstanciaResponse(BaseModel):
     tiempo_real_minutos: Optional[float]
     notas: Optional[str]
     asignado_a: Optional[int]
+    guia_sop: Optional[str] = None
 
     model_config = {"from_attributes": True}
 
@@ -135,5 +136,6 @@ class ProcesoInstanciaResponse(BaseModel):
     created_at: datetime
     updated_at: datetime
     pasos: list[ProcesoPasoInstanciaResponse] = []
+    sop_vinculado: Optional[dict] = None
 
     model_config = {"from_attributes": True}

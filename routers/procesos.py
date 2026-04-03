@@ -157,8 +157,33 @@ def obtener_instancia(
 ):
     instancia = proceso_service.obtener_instancia(db, instancia_id)
     pasos = proceso_service.obtener_pasos_instancia(db, instancia_id)
+
+    # Enriquecer pasos con guia_sop si hay SOP activo vinculado al template
+    sop_vinculado = None
+    try:
+        from services.sop_asistido_service import obtener_sop_activo_por_proceso, obtener_pasos_sop
+        sop = obtener_sop_activo_por_proceso(db, instancia.template_id)
+        if sop:
+            sop_pasos = obtener_pasos_sop(db, sop.id)
+            sop_pasos_por_orden = {p.orden: p.descripcion for p in sop_pasos}
+            for paso in pasos:
+                paso.guia_sop = sop_pasos_por_orden.get(paso.orden)
+
+            sop_vinculado = {
+                "id": sop.id,
+                "titulo": sop.titulo,
+                "area": sop.area.value,
+                "descripcion_proposito": sop.descripcion_proposito,
+                "resultado_esperado": sop.resultado_esperado,
+                "pasos": [{"orden": p.orden, "descripcion": p.descripcion} for p in sop_pasos],
+            }
+    except Exception:
+        pass
+
     instancia.pasos = pasos
-    return ProcesoInstanciaResponse.model_validate(instancia)
+    resp = ProcesoInstanciaResponse.model_validate(instancia)
+    resp.sop_vinculado = sop_vinculado
+    return resp
 
 
 @router.put("/instancias/{instancia_id}", response_model=ProcesoInstanciaResponse)
@@ -181,7 +206,7 @@ def avanzar_paso_instancia(
     db: Session = Depends(get_db),
     current_user: dict = Depends(require_rol("dueno", "contador", "administrativo")),
 ):
-    return proceso_service.avanzar_paso_instancia(db, paso_id, data)
+    return proceso_service.avanzar_paso_instancia(db, paso_id, data, current_user.get("empleado_id"))
 
 
 # ─── SOP ──────────────────────────────────────────────────────────────────────

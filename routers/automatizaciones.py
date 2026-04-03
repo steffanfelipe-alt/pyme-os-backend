@@ -6,6 +6,7 @@ from database import get_db
 from schemas.automatizacion import (
     AutomatizacionResponse,
     AutomatizacionUpdate,
+    DescartarRequest,
     GenerarFlujoRequest,
     GenerarFlujoResponse,
 )
@@ -72,6 +73,15 @@ def listar_automatizaciones(
     return automatizacion_service.listar_automatizaciones(db)
 
 
+@router.get("/pendientes", response_model=list[AutomatizacionResponse])
+def listar_pendientes_revision(
+    db: Session = Depends(get_db),
+    current_user: dict = Depends(solo_dueno),
+):
+    """Lista todas las automatizaciones pendientes de revisión."""
+    return automatizacion_service.listar_pendientes_revision(db)
+
+
 @router.get("/{automatizacion_id}", response_model=AutomatizacionResponse)
 def obtener_automatizacion(
     automatizacion_id: int,
@@ -98,3 +108,24 @@ def eliminar_automatizacion(
     current_user: dict = Depends(solo_dueno),
 ):
     automatizacion_service.eliminar_automatizacion(db, automatizacion_id)
+
+
+@router.patch("/{automatizacion_id}/aprobar", response_model=AutomatizacionResponse)
+def aprobar_automatizacion(
+    automatizacion_id: int,
+    db: Session = Depends(get_db),
+    current_user: dict = Depends(solo_dueno),
+):
+    """Aprueba una automatización y registra el timestamp de aprobación."""
+    return automatizacion_service.aprobar_automatizacion(db, automatizacion_id)
+
+
+@router.patch("/{automatizacion_id}/descartar", response_model=AutomatizacionResponse)
+def descartar_automatizacion(
+    automatizacion_id: int,
+    body: DescartarRequest,
+    db: Session = Depends(get_db),
+    current_user: dict = Depends(solo_dueno),
+):
+    """Descarta una automatización con motivo opcional."""
+    return automatizacion_service.descartar_automatizacion(db, automatizacion_id, body.motivo_descarte)

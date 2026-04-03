@@ -12,7 +12,8 @@ from sqlalchemy.orm import Session
 
 from models.cliente import Cliente
 from models.empleado import Empleado
-from models.proceso import ProcesoInstancia, ProcesoPasoInstancia, ProcesoPasoTemplate, ProcesoTemplate, EstadoInstancia
+from models.proceso import Automatizacion, EstadoRevisionAutomatizacion, ProcesoInstancia, ProcesoPasoInstancia, ProcesoPasoTemplate, ProcesoTemplate, EstadoInstancia
+from models.sop_documento import EstadoSop, SopDocumento
 from models.studio_config import StudioConfig
 from models.tarea import EstadoTarea, Tarea
 from models.vencimiento import EstadoVencimiento, Vencimiento
@@ -74,6 +75,17 @@ def actualizar_config(db: Session, tarifa_hora_pesos: Optional[float], moneda: O
     db.commit()
     db.refresh(config)
     return obtener_config(db)
+
+
+def actualizar_umbral_optimizador(db: Session, umbral: int) -> dict:
+    config = _obtener_o_crear_config(db)
+    config.umbral_instancias_optimizador = umbral
+    db.commit()
+    db.refresh(config)
+    return {
+        "umbral_instancias_optimizador": config.umbral_instancias_optimizador,
+        "updated_at": config.updated_at.isoformat(),
+    }
 
 
 # ─── Reporte 1: Carga por empleado ───────────────────────────────────────────
@@ -261,6 +273,7 @@ def reporte_vencimientos(db: Session, periodo: Optional[str], estado: Optional[E
 
 def reporte_procesos(db: Session, periodo: Optional[str]) -> dict:
     primer_dia, ultimo_dia, periodo_str = _parse_periodo(periodo)
+    config = _obtener_o_crear_config(db)
 
     templates = db.query(ProcesoTemplate).filter(ProcesoTemplate.activo == True).all()
     empleados_idx = {e.id: e.nombre for e in db.query(Empleado).all()}
@@ -276,8 +289,9 @@ def reporte_procesos(db: Session, periodo: Optional[str]) -> dict:
             ProcesoInstancia.fecha_fin <= datetime.combine(ultimo_dia, datetime.max.time()),
         ).all()
 
-        # Mínimo 5 instancias completadas para que sea estadísticamente significativo
-        if len(instancias) < 5:
+        # Mínimo umbral_instancias_optimizador instancias completadas (configurable)
+        umbral = config.umbral_instancias_optimizador if config and hasattr(config, 'umbral_instancias_optimizador') else 5
+        if len(instancias) < umbral:
             continue
 
         # Duración estimada total del template (suma de pasos estimados)
@@ -459,6 +473,13 @@ def reporte_resumen(db: Session, periodo: Optional[str]) -> dict:
                 max_desvio = desvio
                 mayor_desvio = {"proceso": template.nombre, "desvio_pct": round(desvio, 1)}
 
+    automatizaciones_pendientes = db.query(Automatizacion).filter(
+        Automatizacion.estado_revision == EstadoRevisionAutomatizacion.pendiente
+    ).count()
+
+    # Cobertura de SOPs
+    cobertura_sops = _calcular_cobertura_sops(db)
+
     return {
         "periodo": periodo_str,
         "carga": {
@@ -477,4 +498,158 @@ def reporte_resumen(db: Session, periodo: Optional[str]) -> dict:
             "procesos_con_desvio": procesos_con_desvio,
             "mayor_desvio": mayor_desvio,
         },
+        "automatizaciones_pendientes_revision": automatizaciones_pendientes,
+        "cobertura_sops": cobertura_sops,
     }
+
+
+def _calcular_cobertura_sops(db: Session) -> dict:
+    """Calcula cobertura de SOPs sobre procesos activos."""
+    from datetime import datetime, timedelta
+    hoy = datetime.utcnow()
+    hace_90_dias = hoy - timedelta(days=90)
+
+    procesos_activos = db.query(ProcesoTemplate).filter(ProcesoTemplate.activo == True).all()
+    procesos_totales = len(procesos_activos)
+
+    # Procesos con al menos un SOP activo vinculado
+    procesos_con_sop = 0
+    for proc in procesos_activos:
+        tiene_sop = db.query(SopDocumento).filter(
+            SopDocumento.proceso_id == proc.id,
+            SopDocumento.estado == EstadoSop.activo,
+        ).first()
+        if tiene_sop:
+            procesos_con_sop += 1
+
+    procesos_sin_sop = procesos_totales - procesos_con_sop
+    porcentaje = round((procesos_con_sop / procesos_totales) * 100) if procesos_totales > 0 else 0
+
+    # SOPs próximos a revisión (sin fecha o fecha > 90 días)
+    sops_activos = db.query(SopDocumento).filter(SopDocumento.estado == EstadoSop.activo).all()
+    sops_proximos_revision = []
+    for sop in sops_activos:
+        if sop.fecha_ultima_revision is None or sop.fecha_ultima_revision <= hace_90_dias:
+            sops_proximos_revision.append({
+                "id": sop.id,
+                "titulo": sop.titulo,
+                "fecha_ultima_revision": sop.fecha_ultima_revision.isoformat() if sop.fecha_ultima_revision else None,
+            })
+
+    # SOPs activos sin responsable
+    sops_sin_responsable = [
+        {"id": sop.id, "titulo": sop.titulo}
+        for sop in sops_activos
+        if not sop.empleado_responsable_id
+    ]
+
+    return {
+        "procesos_totales": procesos_totales,
+        "procesos_con_sop": procesos_con_sop,
+        "procesos_sin_sop": procesos_sin_sop,
+        "porcentaje_cobertura": porcentaje,
+        "sops_proximos_revision": sops_proximos_revision,
+        "sops_sin_responsable": sops_sin_responsable,
+    }
+
+
+# ─── Diagnóstico de Madurez ───────────────────────────────────────────────────
+
+def reporte_madurez(db: Session) -> dict:
+    """Calcula la etapa de madurez del estudio según SYSTEMology."""
+    from datetime import datetime, timedelta
+
+    hoy = datetime.utcnow()
+    hace_90_dias = hoy - timedelta(days=90)
+
+    # Indicadores
+    procesos_activos = db.query(ProcesoTemplate).filter(ProcesoTemplate.activo == True).count()
+
+    instancias_90d = db.query(ProcesoInstancia).filter(
+        ProcesoInstancia.estado == EstadoInstancia.completado,
+        ProcesoInstancia.fecha_fin.isnot(None),
+        ProcesoInstancia.fecha_fin >= hace_90_dias,
+    ).count()
+
+    sops_activos = db.query(SopDocumento).filter(SopDocumento.estado == EstadoSop.activo).count()
+
+    automatizaciones_aprobadas = db.query(Automatizacion).filter(
+        Automatizacion.estado_revision == EstadoRevisionAutomatizacion.aprobada
+    ).count()
+
+    # Eficiencia promedio últimos 90 días
+    eficiencia_promedio = _calcular_eficiencia_promedio(db, hace_90_dias)
+
+    # Determinar etapa
+    if procesos_activos >= 5 and sops_activos >= 1 and automatizaciones_aprobadas >= 1 and eficiencia_promedio is not None and eficiencia_promedio >= 0.80:
+        etapa_num = 4
+        etapa_nombre = "Saleable"
+        proximos_pasos = [
+            "Documentar indicadores clave de rendimiento (KPIs) del estudio",
+            "Preparar manual de operaciones para potenciales inversores o sucesores",
+            "Evaluar expansión de servicios o capacidad operativa",
+        ]
+    elif procesos_activos >= 5 and sops_activos >= 1 and automatizaciones_aprobadas >= 1:
+        etapa_num = 3
+        etapa_nombre = "Scalable"
+        proximos_pasos = [
+            "Mejorar la eficiencia promedio de procesos al 80% o más",
+            "Revisar y optimizar las automatizaciones existentes",
+            "Agregar métricas de satisfacción de clientes",
+        ]
+    elif procesos_activos >= 3 or sops_activos >= 1:
+        etapa_num = 2
+        etapa_nombre = "Stationary"
+        proximos_pasos = [
+            "Generar al menos una automatización aprobada con n8n",
+            "Vincular todos los SOPs activos a sus procesos correspondientes",
+            "Alcanzar 5 procesos activos documentados",
+        ]
+    else:
+        etapa_num = 1
+        etapa_nombre = "Survival"
+        proximos_pasos = [
+            "Crear al menos 3 procesos documentados en el sistema",
+            "Generar el primer SOP del estudio desde la sección /sop",
+            "Registrar instancias de procesos para empezar a medir tiempos reales",
+        ]
+
+    return {
+        "etapa": {
+            "numero": etapa_num,
+            "nombre": etapa_nombre,
+        },
+        "indicadores": {
+            "procesos_activos": procesos_activos,
+            "instancias_completadas_90d": instancias_90d,
+            "sops_activos": sops_activos,
+            "automatizaciones_aprobadas": automatizaciones_aprobadas,
+            "eficiencia_promedio": round(eficiencia_promedio, 2) if eficiencia_promedio is not None else None,
+        },
+        "proximos_pasos": proximos_pasos,
+    }
+
+
+def _calcular_eficiencia_promedio(db: Session, desde: "datetime") -> Optional[float]:
+    """Eficiencia = tiempo_estimado / tiempo_real. Retorna None si no hay datos."""
+    templates = db.query(ProcesoTemplate).filter(ProcesoTemplate.activo == True).all()
+    eficiencias = []
+
+    for template in templates:
+        if not template.tiempo_estimado_minutos:
+            continue
+
+        instancias = db.query(ProcesoInstancia).filter(
+            ProcesoInstancia.template_id == template.id,
+            ProcesoInstancia.estado == EstadoInstancia.completado,
+            ProcesoInstancia.fecha_inicio.isnot(None),
+            ProcesoInstancia.fecha_fin.isnot(None),
+            ProcesoInstancia.fecha_fin >= desde,
+        ).all()
+
+        for inst in instancias:
+            real = (inst.fecha_fin - inst.fecha_inicio).total_seconds() / 60
+            if real > 0:
+                eficiencias.append(template.tiempo_estimado_minutos / real)
+
+    return sum(eficiencias) / len(eficiencias) if eficiencias else None
