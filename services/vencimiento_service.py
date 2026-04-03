@@ -36,10 +36,15 @@ def listar_vencimientos(
     estado: Optional[EstadoVencimiento] = None,
     skip: int = 0,
     limit: int = 50,
+    contador_id: Optional[int] = None,
 ) -> list[Vencimiento]:
     query = db.query(Vencimiento)
     if cliente_id is not None:
         query = query.filter(Vencimiento.cliente_id == cliente_id)
+    if contador_id is not None:
+        query = query.join(Cliente, Vencimiento.cliente_id == Cliente.id).filter(
+            Cliente.contador_asignado_id == contador_id
+        )
     if estado is not None:
         query = query.filter(Vencimiento.estado == estado)
 

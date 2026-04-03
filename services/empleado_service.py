@@ -98,12 +98,14 @@ def listar_carga_empleados(db: Session) -> list[CargaResumenEmpleado]:
             Tarea.estado == EstadoTarea.en_progreso,
             Tarea.activo == True,
         ).scalar() or 0
-        horas_min = db.query(func.coalesce(func.sum(Tarea.tiempo_estimado), 0)).filter(
-            Tarea.empleado_id == emp.id,
-            Tarea.estado.in_([EstadoTarea.pendiente, EstadoTarea.en_progreso]),
-            Tarea.activo == True,
-        ).scalar() or 0
-        horas = round(horas_min / 60, 1)
+        horas = round(
+            db.query(func.coalesce(func.sum(Tarea.horas_estimadas), 0.0)).filter(
+                Tarea.empleado_id == emp.id,
+                Tarea.estado.in_([EstadoTarea.pendiente, EstadoTarea.en_progreso]),
+                Tarea.activo == True,
+            ).scalar() or 0.0,
+            1,
+        )
         pct = round(horas / emp.capacidad_horas_mes * 100, 1) if emp.capacidad_horas_mes else 0.0
         resultado.append(CargaResumenEmpleado(
             empleado_id=emp.id,
@@ -145,7 +147,7 @@ def obtener_carga_empleado(db: Session, empleado_id: int) -> CargaDetalleEmplead
         TareaFicha(
             id=t.id, titulo=t.titulo, tipo=t.tipo.value, prioridad=t.prioridad.value,
             estado=t.estado.value, fecha_limite=t.fecha_limite,
-            tiempo_estimado=t.tiempo_estimado, empleado_id=t.empleado_id,
+            horas_estimadas=t.horas_estimadas, empleado_id=t.empleado_id,
         )
         for t in tareas_activas if t.estado == EstadoTarea.pendiente
     ]
@@ -153,13 +155,12 @@ def obtener_carga_empleado(db: Session, empleado_id: int) -> CargaDetalleEmplead
         TareaFicha(
             id=t.id, titulo=t.titulo, tipo=t.tipo.value, prioridad=t.prioridad.value,
             estado=t.estado.value, fecha_limite=t.fecha_limite,
-            tiempo_estimado=t.tiempo_estimado, empleado_id=t.empleado_id,
+            horas_estimadas=t.horas_estimadas, empleado_id=t.empleado_id,
         )
         for t in tareas_activas if t.estado == EstadoTarea.en_progreso
     ]
 
-    horas_min = sum(t.tiempo_estimado or 0 for t in tareas_activas)
-    horas_estimadas = round(horas_min / 60, 1)
+    horas_estimadas = round(sum(t.horas_estimadas or 0.0 for t in tareas_activas), 1)
 
     # Clientes únicos con tareas activas
     cliente_ids = {t.cliente_id for t in tareas_activas}

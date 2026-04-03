@@ -4,6 +4,7 @@ from sqlalchemy.orm import Session
 
 from auth import create_access_token, hash_password, verify_password
 from database import get_db
+from models.empleado import Empleado
 from models.usuario import Usuario
 
 router = APIRouter(prefix="/api/auth", tags=["Auth"])
@@ -40,7 +41,13 @@ def register(data: RegisterRequest, db: Session = Depends(get_db)):
     db.commit()
     db.refresh(usuario)
 
-    token = create_access_token({"sub": str(usuario.id), "email": usuario.email})
+    empleado = db.query(Empleado).filter(Empleado.email == usuario.email, Empleado.activo == True).first()
+    token = create_access_token({
+        "sub": str(usuario.id),
+        "email": usuario.email,
+        "rol": empleado.rol if empleado else None,
+        "empleado_id": empleado.id if empleado else None,
+    })
     return TokenResponse(access_token=token)
 
 
@@ -50,5 +57,11 @@ def login(data: LoginRequest, db: Session = Depends(get_db)):
     if not usuario or not verify_password(data.password, usuario.password_hash):
         raise HTTPException(status_code=401, detail="Credenciales incorrectas")
 
-    token = create_access_token({"sub": str(usuario.id), "email": usuario.email})
+    empleado = db.query(Empleado).filter(Empleado.email == usuario.email, Empleado.activo == True).first()
+    token = create_access_token({
+        "sub": str(usuario.id),
+        "email": usuario.email,
+        "rol": empleado.rol if empleado else None,
+        "empleado_id": empleado.id if empleado else None,
+    })
     return TokenResponse(access_token=token)

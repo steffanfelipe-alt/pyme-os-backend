@@ -16,11 +16,13 @@ from PIL import Image
 from pypdf import PdfReader
 from sqlalchemy.orm import Session
 
+from models.alerta import AlertaVencimiento
 from models.cliente import Cliente
 from models.documento import Documento, EstadoDocumento, TipoDocumento
 from models.empleado import Empleado  # noqa: F401 — resuelve FK
 from models.vencimiento import EstadoVencimiento, TipoVencimiento, Vencimiento  # noqa: F401 — resuelve FK
 from schemas.documento import DocumentoResponse, DocumentoUpdate
+from services import risk_service
 
 logger = logging.getLogger("pymeos")
 
@@ -260,6 +262,32 @@ async def subir_documento(
 
     db.commit()
     db.refresh(doc)
+
+    # Si el documento está asociado a un vencimiento, resolver las alertas abiertas de ese vencimiento
+    if vencimiento_id is not None:
+        try:
+            alertas_abiertas = db.query(AlertaVencimiento).filter(
+                AlertaVencimiento.vencimiento_id == vencimiento_id,
+                AlertaVencimiento.resuelta_at == None,
+            ).all()
+            for alerta in alertas_abiertas:
+                from datetime import datetime
+                alerta.resuelta_at = datetime.utcnow()
+            if alertas_abiertas:
+                db.commit()
+                logger.info(
+                    "Documento %d — %d alerta(s) resueltas para vencimiento %d",
+                    doc.id, len(alertas_abiertas), vencimiento_id,
+                )
+        except Exception as e:
+            logger.error("Documento %d — error al resolver alertas: %s", doc.id, e)
+
+    # Recalcular risk score del cliente (la documentación afecta la Variable 2)
+    try:
+        risk_service.calcular_score_cliente(db, cliente_id)
+    except Exception as e:
+        logger.error("Documento %d — error al recalcular risk score: %s", doc.id, e)
+
     logger.info("Documento %d subido — cliente %d, estado %s", doc.id, cliente_id, doc.estado.value)
     return DocumentoResponse.model_validate(doc)
 

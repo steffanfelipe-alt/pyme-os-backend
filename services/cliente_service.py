@@ -10,6 +10,7 @@ from sqlalchemy import and_, func, select
 from sqlalchemy.orm import Session
 
 from models.cliente import Cliente, TipoPersona
+from services import documento_service
 
 logger = logging.getLogger("pymeos")
 from models.empleado import Empleado
@@ -321,7 +322,7 @@ def obtener_ficha_cliente(db: Session, cliente_id: int) -> FichaClienteResponse:
         TareaFicha(
             id=t.id, titulo=t.titulo, tipo=t.tipo.value, prioridad=t.prioridad.value,
             estado=t.estado.value, fecha_limite=t.fecha_limite,
-            tiempo_estimado=t.tiempo_estimado, empleado_id=t.empleado_id,
+            horas_estimadas=t.horas_estimadas, empleado_id=t.empleado_id,
         )
         for t in tareas_db
         if t.estado in (EstadoTarea.pendiente, EstadoTarea.en_progreso)
@@ -332,7 +333,7 @@ def obtener_ficha_cliente(db: Session, cliente_id: int) -> FichaClienteResponse:
             TareaFicha(
                 id=t.id, titulo=t.titulo, tipo=t.tipo.value, prioridad=t.prioridad.value,
                 estado=t.estado.value, fecha_limite=t.fecha_limite,
-                tiempo_estimado=t.tiempo_estimado, empleado_id=t.empleado_id,
+                horas_estimadas=t.horas_estimadas, empleado_id=t.empleado_id,
             )
             for t in tareas_db if t.estado == EstadoTarea.completada
         ],
@@ -354,6 +355,8 @@ def obtener_ficha_cliente(db: Session, cliente_id: int) -> FichaClienteResponse:
     proximo_date = proximos[0].fecha_vencimiento if proximos else None
     alerta = _calcular_estado_alerta(proximo_date, tiene_vencidos, len(activas))
 
+    documentos = documento_service.listar_documentos(db, cliente_id)
+
     return FichaClienteResponse(
         cliente=ClienteResponse.model_validate(cliente),
         contador_principal=contador_principal,
@@ -361,5 +364,5 @@ def obtener_ficha_cliente(db: Session, cliente_id: int) -> FichaClienteResponse:
         vencimientos={"proximos": proximos, "vencidos": vencidos},
         tareas={"activas": activas, "completadas_recientes": completadas_recientes},
         estado_alerta=alerta,
-        documentos=None,
+        documentos=documentos,
     )

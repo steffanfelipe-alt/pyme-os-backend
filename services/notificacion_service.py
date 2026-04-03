@@ -12,6 +12,7 @@ from database import SessionLocal
 from models.cliente import Cliente
 from models.empleado import Empleado
 from models.vencimiento import EstadoVencimiento, Vencimiento
+from services import alert_service
 
 logger = logging.getLogger("pymeos")
 
@@ -81,6 +82,13 @@ def job_notificaciones_vencimientos() -> None:
             Vencimiento.fecha_vencimiento < hoy,
         ).update({"estado": EstadoVencimiento.vencido})
         db.commit()
+
+        # Actualizar alertas de vencimientos
+        try:
+            alert_service.generar_alertas(db)
+            logger.info("Job notificaciones — alertas actualizadas")
+        except Exception as e:
+            logger.error("Job notificaciones — error al generar alertas: %s", e)
 
         # Buscar vencimientos próximos + vencidos con datos del cliente
         rows = (

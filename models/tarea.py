@@ -2,7 +2,7 @@ import enum
 from datetime import date, datetime
 
 from sqlalchemy import Boolean, Date, DateTime, Enum, Float, ForeignKey, Integer, String, Text, func
-from sqlalchemy.orm import Mapped, mapped_column
+from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from database import Base
 
@@ -43,13 +43,15 @@ class Tarea(Base):
     )
     fecha_limite: Mapped[date | None] = mapped_column(Date, nullable=True)
     fecha_completada: Mapped[date | None] = mapped_column(Date, nullable=True)
-    tiempo_estimado: Mapped[int | None] = mapped_column(Integer, nullable=True)
-    tiempo_real: Mapped[int | None] = mapped_column(Integer, nullable=True)
     horas_estimadas: Mapped[float | None] = mapped_column(Float, nullable=True)
     horas_reales: Mapped[float | None] = mapped_column(Float, nullable=True)
     notas: Mapped[str | None] = mapped_column(Text, nullable=True)
+    tiempo_estimado_min: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    tiempo_real_min: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
     activo: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
     created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now(), nullable=False)
     updated_at: Mapped[datetime] = mapped_column(
         DateTime, server_default=func.now(), onupdate=func.now(), nullable=False
     )
+
+    sesiones = relationship("TareaSesion", back_populates="tarea", cascade="all, delete-orphan")

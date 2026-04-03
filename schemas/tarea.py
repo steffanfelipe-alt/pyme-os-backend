@@ -14,7 +14,8 @@ class TareaCreate(BaseModel):
     tipo: TipoTarea
     prioridad: PrioridadTarea = PrioridadTarea.media
     fecha_limite: Optional[date] = None
-    tiempo_estimado: Optional[int] = None
+    horas_estimadas: Optional[float] = None
+    tiempo_estimado_min: Optional[int] = None
     notas: Optional[str] = None
 
 
@@ -27,8 +28,8 @@ class TareaUpdate(BaseModel):
     estado: Optional[EstadoTarea] = None
     fecha_limite: Optional[date] = None
     fecha_completada: Optional[date] = None
-    tiempo_estimado: Optional[int] = None
-    tiempo_real: Optional[int] = None
+    horas_estimadas: Optional[float] = None
+    horas_reales: Optional[float] = None
     notas: Optional[str] = None
     activo: Optional[bool] = None
 
@@ -44,9 +45,11 @@ class TareaResponse(BaseModel):
     estado: EstadoTarea
     fecha_limite: Optional[date]
     fecha_completada: Optional[date]
-    tiempo_estimado: Optional[int]
-    tiempo_real: Optional[int]
+    horas_estimadas: Optional[float]
+    horas_reales: Optional[float]
     notas: Optional[str]
+    tiempo_estimado_min: Optional[int]
+    tiempo_real_min: int
     activo: bool
     created_at: datetime
     updated_at: datetime

@@ -9,7 +9,7 @@ from fastapi.responses import JSONResponse
 from sqlalchemy import text
 
 from database import Base, engine
-from routers import alerts, auth_router, clientes, dashboard, documentos, empleados, plantillas, profitability, risk, tareas, vencimientos, workload
+from routers import alerts, auth_router, automatizaciones, clientes, conocimiento, dashboard, documentos, emails, empleados, plantillas, procesos, profitability, reportes, reports, risk, tareas, vencimientos, workload
 
 # --- Logging ---
 LOG_LEVEL = os.environ.get("LOG_LEVEL", "INFO").upper()
@@ -48,6 +48,12 @@ app.include_router(workload.router)
 app.include_router(profitability.router)
 app.include_router(alerts.router)
 app.include_router(risk.router)
+app.include_router(reports.router)
+app.include_router(emails.router)
+app.include_router(procesos.router)
+app.include_router(conocimiento.router)
+app.include_router(automatizaciones.router)
+app.include_router(reportes.router)
 
 
 # --- Manejo global de errores ---
@@ -86,10 +92,11 @@ async def startup() -> None:
     except Exception as e:
         logger.error("Error cargando plantillas por defecto: %s", e)
 
-    # Crear carpeta base de uploads si no existe
+    # Crear carpetas de uploads si no existen
     import os
     os.makedirs("uploads", exist_ok=True)
-    logger.info("Carpeta uploads lista")
+    os.makedirs("uploads/sops", exist_ok=True)
+    logger.info("Carpetas uploads listas")
 
     scheduler.add_job(
         job_notificaciones_vencimientos,
@@ -98,8 +105,23 @@ async def startup() -> None:
         minute=0,
         id="notificaciones_vencimientos",
     )
+
+    from services.gmail_service import job_renovar_gmail_watch
+    from database import SessionLocal as _SessionLocal
+
+    def _job_renovar_watch():
+        with _SessionLocal() as db:
+            job_renovar_gmail_watch(db)
+
+    scheduler.add_job(
+        _job_renovar_watch,
+        trigger="interval",
+        days=6,
+        id="renovar_gmail_watch",
+    )
+
     scheduler.start()
-    logger.info("Scheduler iniciado — job notificaciones programado a las 08:00")
+    logger.info("Scheduler iniciado — job notificaciones 08:00, watch Gmail cada 6 días")
 
 
 @app.on_event("shutdown")

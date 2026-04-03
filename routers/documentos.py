@@ -3,7 +3,7 @@ from typing import Optional
 from fastapi import APIRouter, Depends, File, UploadFile
 from sqlalchemy.orm import Session
 
-from auth import get_current_user
+from auth_dependencies import require_rol, solo_dueno, verificar_acceso_cliente
 from database import get_db
 from schemas.documento import ChecklistResponse, DocumentoResponse, DocumentoUpdate
 from services import documento_service
@@ -21,8 +21,9 @@ async def subir_documento(
     file: UploadFile = File(...),
     vencimiento_id: Optional[int] = None,
     db: Session = Depends(get_db),
-    current_user: dict = Depends(get_current_user),
+    current_user: dict = Depends(require_rol("dueno", "contador", "administrativo")),
 ):
+    verificar_acceso_cliente(current_user, cliente_id, db)
     return await documento_service.subir_documento(db, cliente_id, file, vencimiento_id)
 
 
@@ -33,8 +34,9 @@ async def subir_documento(
 def listar_documentos(
     cliente_id: int,
     db: Session = Depends(get_db),
-    current_user: dict = Depends(get_current_user),
+    current_user: dict = Depends(require_rol("dueno", "contador", "administrativo")),
 ):
+    verificar_acceso_cliente(current_user, cliente_id, db)
     return documento_service.listar_documentos(db, cliente_id)
 
 
@@ -46,7 +48,7 @@ def actualizar_documento(
     doc_id: int,
     data: DocumentoUpdate,
     db: Session = Depends(get_db),
-    current_user: dict = Depends(get_current_user),
+    current_user: dict = Depends(require_rol("dueno", "contador", "administrativo")),
 ):
     return documento_service.actualizar_documento(db, doc_id, data)
 
@@ -59,12 +61,13 @@ def checklist_documentacion(
     cliente_id: int,
     periodo: str,
     db: Session = Depends(get_db),
-    current_user: dict = Depends(get_current_user),
+    current_user: dict = Depends(require_rol("dueno", "contador", "administrativo")),
 ):
     """
     Retorna el estado de documentación de un cliente para un período fiscal.
     Indica qué documentos llegaron, cuáles faltan, y el % de completitud.
     """
+    verificar_acceso_cliente(current_user, cliente_id, db)
     return documento_service.obtener_checklist(db, cliente_id, periodo)
 
 
@@ -75,6 +78,6 @@ def checklist_documentacion(
 def eliminar_documento(
     doc_id: int,
     db: Session = Depends(get_db),
-    current_user: dict = Depends(get_current_user),
+    current_user: dict = Depends(solo_dueno),
 ):
     documento_service.eliminar_documento(db, doc_id)

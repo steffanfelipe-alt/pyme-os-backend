@@ -32,28 +32,28 @@ class TareaRetrasada(BaseModel):
     dias_retraso: int
 
 
-class TasaAlertas(BaseModel):
-    esta_semana: int
-    semana_anterior: int
-    tendencia: str  # "sube" | "baja" | "igual"
+class ResumenAlertas(BaseModel):
+    criticas: int
+    advertencias: int
+    informativas: int
 
 
 class BloqueRiesgo(BaseModel):
     vencimientos_sin_docs: list[VencimientoSinDoc]
     clientes_sin_actividad: list[ClienteSinActividad]
     tareas_retrasadas: list[TareaRetrasada]
-    tasa_alertas: TasaAlertas
+    alertas_activas: ResumenAlertas
 
 
 class CargaContador(BaseModel):
     empleado_id: int
     nombre: str
     rol: str
-    tareas_pendientes: int
-    tareas_en_progreso: int
-    horas_estimadas: float
-    capacidad_horas_mes: int
+    horas_comprometidas: float
+    horas_disponibles: float
     porcentaje_carga: float
+    nivel: str  # "disponible" | "ocupado" | "sobrecargado"
+    cantidad_tareas: int
     color: str  # "verde" | "amarillo" | "rojo"
 
 
@@ -64,7 +64,7 @@ class CompletadasATiempo(BaseModel):
 
 class TiempoPromedioTipo(BaseModel):
     tipo: str
-    promedio_minutos: float
+    promedio_horas: float
     cantidad: int
 
 

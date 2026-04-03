@@ -6,6 +6,7 @@ from typing import Optional
 from pydantic import BaseModel, computed_field, field_validator
 
 from models.cliente import CondicionFiscal, TipoPersona
+from schemas.documento import DocumentoResponse
 
 
 class EstadoAlerta(str, enum.Enum):
@@ -146,7 +147,7 @@ class TareaFicha(BaseModel):
     prioridad: str
     estado: str
     fecha_limite: Optional[date]
-    tiempo_estimado: Optional[int]
+    horas_estimadas: Optional[float]
     empleado_id: Optional[int]
 
     model_config = {"from_attributes": True}
@@ -159,4 +160,4 @@ class FichaClienteResponse(BaseModel):
     vencimientos: dict
     tareas: dict
     estado_alerta: EstadoAlerta
-    documentos: None = None
+    documentos: list[DocumentoResponse] = []

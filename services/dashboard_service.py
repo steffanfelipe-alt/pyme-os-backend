@@ -8,7 +8,7 @@ from sqlalchemy.orm import Session
 from models.cliente import Cliente
 from models.documento import Documento, EstadoDocumento
 from models.empleado import Empleado
-from models.tarea import EstadoTarea, Tarea, TipoTarea
+from models.tarea import EstadoTarea, Tarea
 from models.vencimiento import EstadoVencimiento, Vencimiento
 from schemas.dashboard import (
     BloqueRiesgo,
@@ -22,12 +22,13 @@ from schemas.dashboard import (
     EvolucionMensual,
     IndiceConcentracion,
     RentabilidadCliente,
+    ResumenAlertas,
     TareaRetrasada,
-    TasaAlertas,
     TiempoPromedioTipo,
     TiempoRealCliente,
     VencimientoSinDoc,
 )
+from services import alert_service, profitability_service, workload_service
 
 logger = logging.getLogger("pymeos")
 
@@ -172,44 +173,17 @@ def obtener_dashboard(db: Session, contador_id: Optional[int] = None) -> Dashboa
         for t, c, e in tareas_ret_rows
     ]
 
-    # 4. Tasa de alertas
-    semana_inicio = hoy - timedelta(days=7)
-    semana_ant_inicio = hoy - timedelta(days=14)
-    semana_ant_fin = hoy - timedelta(days=7)
-
-    def _contar_alertas(fecha_desde: date, fecha_hasta: date) -> int:
-        venc_count = db.query(func.count(Vencimiento.id)).filter(
-            Vencimiento.cliente_id.in_(clientes_ids_sq),
-            Vencimiento.estado == EstadoVencimiento.vencido,
-            Vencimiento.fecha_vencimiento >= fecha_desde,
-            Vencimiento.fecha_vencimiento <= fecha_hasta,
-        ).scalar() or 0
-        tarea_count = db.query(func.count(Tarea.id)).filter(
-            Tarea.cliente_id.in_(clientes_ids_sq),
-            Tarea.estado.in_([EstadoTarea.pendiente, EstadoTarea.en_progreso]),
-            Tarea.fecha_limite >= fecha_desde,
-            Tarea.fecha_limite <= fecha_hasta,
-            Tarea.activo == True,
-        ).scalar() or 0
-        return venc_count + tarea_count
-
-    alertas_semana = _contar_alertas(semana_inicio, hoy)
-    alertas_ant = _contar_alertas(semana_ant_inicio, semana_ant_fin)
-    if alertas_semana > alertas_ant:
-        tendencia = "sube"
-    elif alertas_semana < alertas_ant:
-        tendencia = "baja"
-    else:
-        tendencia = "igual"
+    # 4. Alertas activas — via alert_service
+    resumen = alert_service.resumen_alertas(db)
 
     bloque_riesgo = BloqueRiesgo(
         vencimientos_sin_docs=vencimientos_sin_docs,
         clientes_sin_actividad=clientes_sin_actividad,
         tareas_retrasadas=tareas_retrasadas,
-        tasa_alertas=TasaAlertas(
-            esta_semana=alertas_semana,
-            semana_anterior=alertas_ant,
-            tendencia=tendencia,
+        alertas_activas=ResumenAlertas(
+            criticas=resumen["criticas"],
+            advertencias=resumen["advertencias"],
+            informativas=resumen["informativas"],
         ),
     )
 
@@ -217,45 +191,27 @@ def obtener_dashboard(db: Session, contador_id: Optional[int] = None) -> Dashboa
     # BLOQUE CARGA
     # ══════════════════════════════════════════════════════════════════════
 
-    empleados = db.query(Empleado).filter(Empleado.activo == True).all()
-    if contador_id is not None:
-        empleados = [e for e in empleados if e.id == contador_id]
+    panel = workload_service.obtener_panel_carga(db)
+    emp_info = {e.id: e for e in db.query(Empleado).filter(Empleado.activo == True).all()}
 
     carga_por_contador = []
-    total_tareas_activas = 0
-    for emp in empleados:
-        pend = db.query(func.count(Tarea.id)).filter(
-            Tarea.empleado_id == emp.id,
-            Tarea.estado == EstadoTarea.pendiente,
-            Tarea.activo == True,
-            Tarea.cliente_id.in_(clientes_ids_sq),
-        ).scalar() or 0
-        en_prog = db.query(func.count(Tarea.id)).filter(
-            Tarea.empleado_id == emp.id,
-            Tarea.estado == EstadoTarea.en_progreso,
-            Tarea.activo == True,
-            Tarea.cliente_id.in_(clientes_ids_sq),
-        ).scalar() or 0
-        horas_est = db.query(func.coalesce(func.sum(Tarea.tiempo_estimado), 0)).filter(
-            Tarea.empleado_id == emp.id,
-            Tarea.estado.in_([EstadoTarea.pendiente, EstadoTarea.en_progreso]),
-            Tarea.activo == True,
-            Tarea.cliente_id.in_(clientes_ids_sq),
-        ).scalar() or 0
-        horas_est_f = round(horas_est / 60, 1)
-        pct = round(horas_est_f / emp.capacidad_horas_mes * 100, 1) if emp.capacidad_horas_mes else 0
-        total_tareas_activas += pend + en_prog
+    for p in panel:
+        if contador_id is not None and p["empleado_id"] != contador_id:
+            continue
+        emp = emp_info.get(p["empleado_id"])
         carga_por_contador.append(CargaContador(
-            empleado_id=emp.id,
-            nombre=emp.nombre,
-            rol=emp.rol.value,
-            tareas_pendientes=pend,
-            tareas_en_progreso=en_prog,
-            horas_estimadas=horas_est_f,
-            capacidad_horas_mes=emp.capacidad_horas_mes,
-            porcentaje_carga=pct,
-            color=_color_carga(pct),
+            empleado_id=p["empleado_id"],
+            nombre=p["nombre"],
+            rol=emp.rol.value if emp else "",
+            horas_comprometidas=p["horas_comprometidas"],
+            horas_disponibles=p["horas_disponibles"],
+            porcentaje_carga=p["porcentaje_carga"],
+            nivel=p["nivel"],
+            cantidad_tareas=p["cantidad_tareas"],
+            color=_color_carga(p["porcentaje_carga"]),
         ))
+
+    total_tareas_activas = sum(c.cantidad_tareas for c in carga_por_contador)
 
     # % completadas a tiempo — mes actual vs anterior
     mes_inicio = hoy.replace(day=1)
@@ -288,12 +244,12 @@ def obtener_dashboard(db: Session, contador_id: Optional[int] = None) -> Dashboa
     tipo_stats = (
         db.query(
             Tarea.tipo,
-            func.avg(Tarea.tiempo_real).label("promedio"),
+            func.avg(Tarea.horas_reales).label("promedio"),
             func.count(Tarea.id).label("cantidad"),
         )
         .filter(
             Tarea.estado == EstadoTarea.completada,
-            Tarea.tiempo_real.isnot(None),
+            Tarea.horas_reales.isnot(None),
             Tarea.activo == True,
             Tarea.cliente_id.in_(clientes_ids_sq),
         )
@@ -303,7 +259,7 @@ def obtener_dashboard(db: Session, contador_id: Optional[int] = None) -> Dashboa
     tiempo_promedio = [
         TiempoPromedioTipo(
             tipo=row.tipo.value,
-            promedio_minutos=round(row.promedio or 0, 1),
+            promedio_horas=round(row.promedio or 0, 1),
             cantidad=row.cantidad,
         )
         for row in tipo_stats
@@ -311,7 +267,7 @@ def obtener_dashboard(db: Session, contador_id: Optional[int] = None) -> Dashboa
 
     # Índice de concentración
     if total_tareas_activas > 0 and carga_por_contador:
-        max_tareas = max(c.tareas_pendientes + c.tareas_en_progreso for c in carga_por_contador)
+        max_tareas = max(c.cantidad_tareas for c in carga_por_contador)
         top_pct = round(max_tareas / total_tareas_activas * 100, 1)
         alerta_conc = top_pct >= 80
     else:
@@ -336,32 +292,32 @@ def obtener_dashboard(db: Session, contador_id: Optional[int] = None) -> Dashboa
     # BLOQUE SALUD
     # ══════════════════════════════════════════════════════════════════════
 
-    # Tiempo real invertido x cliente — mes actual
-    tiempo_real_rows = (
+    # Horas reales invertidas x cliente — mes actual
+    horas_reales_rows = (
         db.query(
             Tarea.cliente_id,
             Cliente.nombre,
-            func.coalesce(func.sum(Tarea.tiempo_real), 0).label("total_min"),
+            func.coalesce(func.sum(Tarea.horas_reales), 0.0).label("total_horas"),
         )
         .join(Cliente, Tarea.cliente_id == Cliente.id)
         .filter(
             Tarea.cliente_id.in_(clientes_ids_sq),
             Tarea.estado == EstadoTarea.completada,
             Tarea.fecha_completada >= mes_inicio,
-            Tarea.tiempo_real.isnot(None),
+            Tarea.horas_reales.isnot(None),
             Tarea.activo == True,
         )
         .group_by(Tarea.cliente_id, Cliente.nombre)
-        .order_by(func.sum(Tarea.tiempo_real).desc())
+        .order_by(func.sum(Tarea.horas_reales).desc())
         .all()
     )
     tiempo_real_por_cliente = [
         TiempoRealCliente(
             cliente_id=r.cliente_id,
             nombre=r.nombre,
-            horas_mes=round(r.total_min / 60, 1),
+            horas_mes=round(r.total_horas, 1),
         )
-        for r in tiempo_real_rows
+        for r in horas_reales_rows
     ]
 
     # Documentación x cliente (% de vencimientos con doc procesada)
@@ -433,47 +389,27 @@ def obtener_dashboard(db: Session, contador_id: Optional[int] = None) -> Dashboa
             bajas=bajas,
         ))
 
-    # Rentabilidad x cliente
-    rentabilidad_rows = (
-        db.query(
-            Cliente.id,
-            Cliente.nombre,
-            Cliente.honorarios_mensuales,
-            func.coalesce(func.sum(Tarea.tiempo_real), 0).label("min_mes"),
-        )
-        .outerjoin(
-            Tarea,
-            and_(
-                Tarea.cliente_id == Cliente.id,
-                Tarea.estado == EstadoTarea.completada,
-                Tarea.fecha_completada >= mes_inicio,
-                Tarea.activo == True,
-            ),
-        )
-        .filter(Cliente.id.in_(clientes_ids_sq))
-        .group_by(Cliente.id, Cliente.nombre, Cliente.honorarios_mensuales)
-        .all()
-    )
+    # Rentabilidad x cliente — via profitability_service (snapshots del período actual)
+    periodo_actual = hoy.strftime("%Y-%m")
+    snapshots = profitability_service.listar_rentabilidad(db, periodo_actual)
 
     rentabilidad_por_cliente = []
-    for r in rentabilidad_rows:
-        horas = round(r.min_mes / 60, 1) if r.min_mes else 0.0
-        honorarios = float(r.honorarios_mensuales) if r.honorarios_mensuales else None
-        if honorarios is None or horas == 0:
+    for s in snapshots:
+        honorario = s["honorario"] if s["honorario_configurado"] else None
+        horas = s["horas_reales"]
+        costo_hora = s["rentabilidad_hora"]
+        if costo_hora is None:
             semaforo = "sin_datos"
-            costo_hora = None
+        elif costo_hora >= COSTO_HORA_RENTABLE:
+            semaforo = "rentable"
+        elif costo_hora >= COSTO_HORA_NEUTRO:
+            semaforo = "neutro"
         else:
-            costo_hora = round(honorarios / horas, 0)
-            if costo_hora >= COSTO_HORA_RENTABLE:
-                semaforo = "rentable"
-            elif costo_hora >= COSTO_HORA_NEUTRO:
-                semaforo = "neutro"
-            else:
-                semaforo = "deficitario"
+            semaforo = "deficitario"
         rentabilidad_por_cliente.append(RentabilidadCliente(
-            cliente_id=r.id,
-            nombre=r.nombre,
-            honorarios=honorarios,
+            cliente_id=s["cliente_id"],
+            nombre=s["nombre"],
+            honorarios=honorario,
             horas_mes=horas,
             costo_hora_estimado=costo_hora,
             semaforo=semaforo,

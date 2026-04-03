@@ -8,9 +8,10 @@ from database import Base
 
 
 class RolEmpleado(str, enum.Enum):
-    socio = "socio"
+    dueno = "dueno"
     contador = "contador"
     administrativo = "administrativo"
+    rrhh = "rrhh"
 
 
 class Empleado(Base):

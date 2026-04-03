@@ -24,6 +24,10 @@ import models.plantilla_vencimiento
 import models.documento
 import models.rentabilidad
 import models.alerta
+import models.informe_ejecutivo
+import models.proceso
+import models.tarea_sesion
+import models.studio_config
 
 target_metadata = Base.metadata
 
