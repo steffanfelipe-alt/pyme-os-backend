@@ -224,7 +224,7 @@ def generar_sop(
 # ─── Optimizador ─────────────────────────────────────────────────────────────
 
 @router.post("/optimizar/desde-descripcion")
-def optimizar_desde_descripcion(
+async def optimizar_desde_descripcion(
     payload: dict,
     current_user: dict = Depends(require_rol("dueno", "contador")),
 ):
@@ -233,11 +233,11 @@ def optimizar_desde_descripcion(
         from fastapi import HTTPException
         raise HTTPException(status_code=422, detail="El campo 'descripcion' es requerido")
     from services.optimizador_service import optimizar_descripcion
-    return optimizar_descripcion(descripcion)
+    return await optimizar_descripcion(descripcion)
 
 
 @router.post("/templates/{template_id}/analizar-automatizabilidad")
-def analizar_automatizabilidad(
+async def analizar_automatizabilidad(
     template_id: int,
     db: Session = Depends(get_db),
     current_user: dict = Depends(solo_dueno),
@@ -252,4 +252,4 @@ def analizar_automatizabilidad(
         }
         for p in pasos
     ]
-    return analizar_pasos_automatizabilidad(pasos_dict)
+    return await analizar_pasos_automatizabilidad(pasos_dict)

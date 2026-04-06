@@ -57,6 +57,8 @@ def _obtener_o_crear_config(db: Session) -> StudioConfig:
 def obtener_config(db: Session) -> dict:
     config = _obtener_o_crear_config(db)
     return {
+        "nombre_estudio": config.nombre_estudio,
+        "email_estudio": config.email_estudio,
         "tarifa_hora_pesos": float(config.tarifa_hora_pesos) if config.tarifa_hora_pesos else None,
         "moneda": config.moneda,
         "zona_horaria": config.zona_horaria,
@@ -64,7 +66,14 @@ def obtener_config(db: Session) -> dict:
     }
 
 
-def actualizar_config(db: Session, tarifa_hora_pesos: Optional[float], moneda: Optional[str], zona_horaria: Optional[str]) -> dict:
+def actualizar_config(
+    db: Session,
+    tarifa_hora_pesos: Optional[float],
+    moneda: Optional[str],
+    zona_horaria: Optional[str],
+    nombre_estudio: Optional[str] = None,
+    email_estudio: Optional[str] = None,
+) -> dict:
     config = _obtener_o_crear_config(db)
     if tarifa_hora_pesos is not None:
         config.tarifa_hora_pesos = Decimal(str(tarifa_hora_pesos))
@@ -72,6 +81,10 @@ def actualizar_config(db: Session, tarifa_hora_pesos: Optional[float], moneda: O
         config.moneda = moneda
     if zona_horaria is not None:
         config.zona_horaria = zona_horaria
+    if nombre_estudio is not None:
+        config.nombre_estudio = nombre_estudio
+    if email_estudio is not None:
+        config.email_estudio = email_estudio
     db.commit()
     db.refresh(config)
     return obtener_config(db)
@@ -580,44 +593,49 @@ def reporte_madurez(db: Session) -> dict:
     # Eficiencia promedio últimos 90 días
     eficiencia_promedio = _calcular_eficiencia_promedio(db, hace_90_dias)
 
-    # Determinar etapa
-    if procesos_activos >= 5 and sops_activos >= 1 and automatizaciones_aprobadas >= 1 and eficiencia_promedio is not None and eficiencia_promedio >= 0.80:
+    # Determinar etapa — umbrales ajustados para estudios de 1-3 personas
+    if procesos_activos >= 3 and sops_activos >= 1 and automatizaciones_aprobadas >= 1 and eficiencia_promedio is not None and eficiencia_promedio >= 0.80:
         etapa_num = 4
         etapa_nombre = "Saleable"
+        descripcion_etapa = "Tu estudio opera de forma independiente a tu presencia. Los procesos, SOPs y automatizaciones permiten delegar o transferir el negocio."
         proximos_pasos = [
-            "Documentar indicadores clave de rendimiento (KPIs) del estudio",
-            "Preparar manual de operaciones para potenciales inversores o sucesores",
-            "Evaluar expansión de servicios o capacidad operativa",
+            {"descripcion": "Documentar los KPIs clave del estudio (margen por cliente, tasa de completado)", "horas_estimadas": 4, "prioridad": "alta"},
+            {"descripcion": "Preparar un manual de operaciones resumido para incorporar personal o socios", "horas_estimadas": 8, "prioridad": "media"},
+            {"descripcion": "Evaluar servicios adicionales que escalen sin agregar horas proporcionales", "horas_estimadas": 2, "prioridad": "baja"},
         ]
-    elif procesos_activos >= 5 and sops_activos >= 1 and automatizaciones_aprobadas >= 1:
+    elif procesos_activos >= 3 and sops_activos >= 1 and automatizaciones_aprobadas >= 1:
         etapa_num = 3
         etapa_nombre = "Scalable"
+        descripcion_etapa = "Tenés procesos, SOPs y automatizaciones activas. El estudio puede crecer sin que todo dependa solo de vos."
         proximos_pasos = [
-            "Mejorar la eficiencia promedio de procesos al 80% o más",
-            "Revisar y optimizar las automatizaciones existentes",
-            "Agregar métricas de satisfacción de clientes",
+            {"descripcion": "Mejorar la eficiencia promedio de procesos al 80% — revisá los pasos con mayor desvío", "horas_estimadas": 3, "prioridad": "alta"},
+            {"descripcion": "Revisar y optimizar las automatizaciones existentes en n8n", "horas_estimadas": 2, "prioridad": "media"},
+            {"descripcion": "Registrar satisfacción de clientes al completar cada proceso", "horas_estimadas": 1, "prioridad": "baja"},
         ]
-    elif procesos_activos >= 3 or sops_activos >= 1:
+    elif procesos_activos >= 2 or sops_activos >= 1:
         etapa_num = 2
         etapa_nombre = "Stationary"
+        descripcion_etapa = "Empezaste a sistematizar. Tenés algunos procesos documentados o SOPs. El próximo paso es automatizar una tarea repetitiva."
         proximos_pasos = [
-            "Generar al menos una automatización aprobada con n8n",
-            "Vincular todos los SOPs activos a sus procesos correspondientes",
-            "Alcanzar 5 procesos activos documentados",
+            {"descripcion": "Identificar la tarea más repetitiva y crear una automatización en n8n", "horas_estimadas": 4, "prioridad": "alta"},
+            {"descripcion": "Vincular los SOPs activos a sus procesos correspondientes", "horas_estimadas": 2, "prioridad": "alta"},
+            {"descripcion": "Documentar al menos 3 procesos del estudio con sus pasos y tiempos estimados", "horas_estimadas": 3, "prioridad": "media"},
         ]
     else:
         etapa_num = 1
         etapa_nombre = "Survival"
+        descripcion_etapa = "El estudio todavía opera de forma reactiva. Todo depende de la memoria y disponibilidad del contador. Es el momento de empezar a documentar."
         proximos_pasos = [
-            "Crear al menos 3 procesos documentados en el sistema",
-            "Generar el primer SOP del estudio desde la sección /sop",
-            "Registrar instancias de procesos para empezar a medir tiempos reales",
+            {"descripcion": "Crear los primeros 2-3 procesos en el sistema (ej: liquidación de IVA, onboarding de cliente)", "horas_estimadas": 3, "prioridad": "alta"},
+            {"descripcion": "Generar el primer SOP del estudio desde la sección /sop", "horas_estimadas": 2, "prioridad": "alta"},
+            {"descripcion": "Registrar instancias de procesos durante 2 semanas para obtener tiempos reales", "horas_estimadas": 1, "prioridad": "media"},
         ]
 
     return {
         "etapa": {
             "numero": etapa_num,
             "nombre": etapa_nombre,
+            "descripcion": descripcion_etapa,
         },
         "indicadores": {
             "procesos_activos": procesos_activos,

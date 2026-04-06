@@ -1,4 +1,4 @@
-from datetime import date, datetime
+from datetime import date, datetime, timezone
 from typing import Optional
 
 from fastapi import HTTPException
@@ -133,7 +133,7 @@ def iniciar_tarea(db: Session, tarea_id: int, empleado_id: Optional[int]) -> Tar
     sesion = TareaSesion(
         tarea_id=tarea_id,
         empleado_id=empleado_id,
-        inicio=datetime.utcnow(),
+        inicio=datetime.now(timezone.utc),
     )
     db.add(sesion)
 
@@ -194,8 +194,8 @@ def obtener_tiempo_tarea(db: Session, tarea_id: int) -> dict:
     sesion_activa = next((s for s in sesiones if s.fin is None), None)
     return {
         "tarea_id": tarea_id,
-        "tiempo_estimado_min": tarea.tiempo_estimado_min,
-        "tiempo_real_min": tarea.tiempo_real_min,
+        "horas_estimadas": tarea.horas_estimadas,
+        "horas_reales": tarea.horas_reales,
         "sesion_activa": sesion_activa is not None,
         "sesiones": [
             {
@@ -218,11 +218,12 @@ def _cerrar_sesion_activa(db: Session, tarea_id: int) -> None:
     if not sesion:
         return
 
-    ahora = datetime.utcnow()
+    ahora = datetime.now(timezone.utc)
     sesion.fin = ahora
-    sesion.minutos = max(1, int((ahora - sesion.inicio).total_seconds() // 60))
+    inicio = sesion.inicio if sesion.inicio.tzinfo else sesion.inicio.replace(tzinfo=timezone.utc)
+    sesion.minutos = max(1, int((ahora - inicio).total_seconds() // 60))
 
     tarea = db.query(Tarea).filter(Tarea.id == tarea_id).first()
     if tarea:
-        tarea.tiempo_real_min = (tarea.tiempo_real_min or 0) + sesion.minutos
+        tarea.horas_reales = (tarea.horas_reales or 0) + sesion.minutos / 60
     # El commit lo hace el endpoint que llama a esta función

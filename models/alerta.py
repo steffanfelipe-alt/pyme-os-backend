@@ -22,6 +22,10 @@ class AlertaVencimiento(Base):
     documentos_faltantes: Mapped[list | None] = mapped_column(JSON, nullable=True)
     mensaje: Mapped[str] = mapped_column(Text, nullable=False)
     vista: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
+    sent_via_telegram: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
+    sent_via_email: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
+    telegram_sent_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    email_sent_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
     created_at: Mapped[datetime] = mapped_column(
         DateTime, server_default=func.now(), nullable=False
     )

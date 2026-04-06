@@ -157,7 +157,7 @@ def test_madurez_proximos_pasos_etapa1(client, db, headers):
     resp = client.get("/api/reportes/madurez", headers=headers)
     data = resp.json()
     if data["etapa"]["numero"] == 1:
-        pasos = " ".join(data["proximos_pasos"]).lower()
+        pasos = " ".join(p["descripcion"] for p in data["proximos_pasos"]).lower()
         assert any(k in pasos for k in ["proceso", "sop", "instancia"])
 
 

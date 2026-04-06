@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, BackgroundTasks, Depends
 from sqlalchemy.orm import Session
 
 from auth_dependencies import solo_dueno
@@ -20,11 +20,19 @@ def listar_clientes_por_riesgo(
 @router.post("/clients/{client_id}/calculate")
 def calcular_score(
     client_id: int,
+    background_tasks: BackgroundTasks,
     db: Session = Depends(get_db),
     current_user: dict = Depends(solo_dueno),
 ):
-    """Recalcula el risk_score de un cliente específico."""
-    return risk_service.calcular_score_cliente(db, client_id)
+    """Recalcula el risk_score. risk_explanation se genera en background (~5s)."""
+    resultado = risk_service.calcular_score_cliente(db, client_id)
+    factores = resultado.pop("_factores", {})
+    background_tasks.add_task(
+        risk_service.generar_risk_explanation_background,
+        client_id,
+        factores,
+    )
+    return resultado
 
 
 @router.post("/recalculate-all")

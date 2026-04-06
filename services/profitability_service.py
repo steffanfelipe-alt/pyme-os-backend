@@ -5,6 +5,7 @@ from sqlalchemy.orm import Session
 
 from models.cliente import Cliente
 from models.rentabilidad import RentabilidadMensual
+from models.studio_config import StudioConfig
 from models.tarea import EstadoTarea, Tarea
 
 
@@ -33,6 +34,10 @@ def calcular_rentabilidad_periodo(db: Session, periodo: str) -> list[dict]:
 
     clientes = db.query(Cliente).filter(Cliente.activo == True).all()
     resultados = []
+
+    # Tarifa del estudio para calcular margen
+    studio_config = db.query(StudioConfig).first()
+    tarifa_hora = float(studio_config.tarifa_hora_pesos) if studio_config and studio_config.tarifa_hora_pesos else None
 
     for cliente in clientes:
         tareas = db.query(Tarea).filter(
@@ -66,6 +71,14 @@ def calcular_rentabilidad_periodo(db: Session, periodo: str) -> list[dict]:
         if honorario_configurado and honorario > 0 and horas_reales_total > 0:
             rentabilidad_hora = round(honorario / horas_reales_total, 2)
 
+        # Margen y costo estimado
+        costo_estimado = None
+        profit_margin_percentage = None
+        if tarifa_hora is not None and horas_reales_total > 0:
+            costo_estimado = round(horas_reales_total * tarifa_hora, 2)
+            if honorario_configurado and honorario > 0:
+                profit_margin_percentage = round(((honorario - costo_estimado) / honorario) * 100, 2)
+
         # Sobreescribir snapshot existente si ya existe para este cliente+periodo
         snapshot = db.query(RentabilidadMensual).filter(
             RentabilidadMensual.cliente_id == cliente.id,
@@ -79,6 +92,8 @@ def calcular_rentabilidad_periodo(db: Session, periodo: str) -> list[dict]:
             snapshot.rentabilidad_hora = rentabilidad_hora
             snapshot.tareas_completadas = tareas_completadas
             snapshot.tareas_demoradas = tareas_demoradas
+            snapshot.costo_estimado = costo_estimado
+            snapshot.profit_margin_percentage = profit_margin_percentage
         else:
             snapshot = RentabilidadMensual(
                 cliente_id=cliente.id,
@@ -89,8 +104,27 @@ def calcular_rentabilidad_periodo(db: Session, periodo: str) -> list[dict]:
                 rentabilidad_hora=rentabilidad_hora,
                 tareas_completadas=tareas_completadas,
                 tareas_demoradas=tareas_demoradas,
+                costo_estimado=costo_estimado,
+                profit_margin_percentage=profit_margin_percentage,
             )
             db.add(snapshot)
+
+        # Calcular trend comparando con período anterior
+        prev_anio, prev_mes = (int(periodo[:4]), int(periodo[5:7]))
+        if prev_mes == 1:
+            prev_periodo = f"{prev_anio - 1}-12"
+        else:
+            prev_periodo = f"{prev_anio}-{prev_mes - 1:02d}"
+
+        prev_snap = db.query(RentabilidadMensual).filter(
+            RentabilidadMensual.cliente_id == cliente.id,
+            RentabilidadMensual.periodo == prev_periodo,
+        ).first()
+
+        trend = None
+        if prev_snap and prev_snap.profit_margin_percentage is not None and profit_margin_percentage is not None:
+            diff = profit_margin_percentage - prev_snap.profit_margin_percentage
+            trend = "sube" if diff > 5 else ("baja" if diff < -5 else "estable")
 
         resultados.append({
             "cliente_id": cliente.id,
@@ -101,6 +135,9 @@ def calcular_rentabilidad_periodo(db: Session, periodo: str) -> list[dict]:
             "horas_reales": round(horas_reales_total, 2),
             "horas_estimadas": round(horas_estimadas_total, 2) if horas_estimadas_total > 0 else None,
             "rentabilidad_hora": rentabilidad_hora,
+            "costo_estimado": costo_estimado,
+            "profit_margin_percentage": profit_margin_percentage,
+            "trend": trend,
             "tareas_completadas": tareas_completadas,
             "tareas_demoradas": tareas_demoradas,
         })
@@ -145,6 +182,8 @@ def listar_rentabilidad(db: Session, periodo: str) -> list[dict]:
             "horas_reales": snap.horas_reales,
             "horas_estimadas": snap.horas_estimadas,
             "rentabilidad_hora": snap.rentabilidad_hora,
+            "costo_estimado": snap.costo_estimado,
+            "profit_margin_percentage": snap.profit_margin_percentage,
             "tareas_completadas": snap.tareas_completadas,
             "tareas_demoradas": snap.tareas_demoradas,
         })

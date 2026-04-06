@@ -223,7 +223,7 @@ def archivar_sop(db: Session, sop_id: int) -> SopDocumento:
 
 # ─── Generación asistida por IA ───────────────────────────────────────────────
 
-def generar_sop_desde_descripcion(
+async def generar_sop_desde_descripcion(
     db: Session,
     descripcion: str,
     area: Optional[AreaSop],
@@ -243,8 +243,8 @@ def generar_sop_desde_descripcion(
         f'\n\nDescripción del proceso:\n{descripcion}'
     )
 
-    client = anthropic.Anthropic()
-    mensaje = client.messages.create(
+    client = anthropic.AsyncAnthropic()
+    mensaje = await client.messages.create(
         model=_MODELO,
         max_tokens=1024,
         system=_SYSTEM_PROMPT_SOP,
@@ -291,7 +291,7 @@ def generar_sop_desde_descripcion(
 
 # ─── Integración con automatizaciones ─────────────────────────────────────────
 
-def generar_automatizacion_desde_sop(db: Session, sop_id: int) -> Automatizacion:
+async def generar_automatizacion_desde_sop(db: Session, sop_id: int) -> Automatizacion:
     sop = obtener_sop(db, sop_id)
     pasos = obtener_pasos_sop(db, sop_id)
 
@@ -326,8 +326,8 @@ def generar_automatizacion_desde_sop(db: Session, sop_id: int) -> Automatizacion
         for p in pasos
     ]
 
-    analisis = analizar_pasos_automatizabilidad(pasos_dict)
-    flujo = generar_flujo_n8n(pasos_dict, analisis)
+    analisis = await analizar_pasos_automatizabilidad(pasos_dict)
+    flujo = await generar_flujo_n8n(pasos_dict, analisis)
 
     minutos_propios = sum(p.tiempo_estimado_minutos or 0 for p in pasos_automatizables)
     ahorro_propio = (minutos_propios * 20) / 60

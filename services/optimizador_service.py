@@ -24,7 +24,7 @@ def _limpiar_json(raw: str) -> dict:
     return json.loads(raw)
 
 
-def optimizar_descripcion(descripcion: str) -> dict:
+async def optimizar_descripcion(descripcion: str) -> dict:
     """
     Recibe una descripción libre de un proceso y retorna un template estructurado
     con nombre, tipo sugerido, descripcion mejorada y pasos sugeridos.
@@ -56,8 +56,8 @@ es_automatizable: true si el paso puede hacerse con software sin intervención h
 Descripción del proceso:
 {descripcion}"""
 
-    client = anthropic.Anthropic()
-    mensaje = client.messages.create(
+    client = anthropic.AsyncAnthropic()
+    mensaje = await client.messages.create(
         model=_MODELO,
         max_tokens=1024,
         messages=[{"role": "user", "content": prompt}],
@@ -78,7 +78,7 @@ Criterios de recomendación en orden de prioridad:
 Respondé SIEMPRE con un objeto JSON válido y nada más. Sin texto adicional, sin bloques markdown."""
 
 
-def analizar_pasos_automatizabilidad(pasos: list[dict]) -> dict:
+async def analizar_pasos_automatizabilidad(pasos: list[dict]) -> dict:
     """
     Clasifica cada paso del proceso por nivel de automatizabilidad.
     Retorna análisis enriquecido: resumen, pasos_criticos, sugerencias, riesgo_fiscal, automatizable por paso.
@@ -122,8 +122,8 @@ ahorro_total_horas_mes: horas mensuales estimadas si se automatizan todos los pa
 Pasos del proceso:
 {pasos_texto}"""
 
-    client = anthropic.Anthropic()
-    mensaje = client.messages.create(
+    client = anthropic.AsyncAnthropic()
+    mensaje = await client.messages.create(
         model=_MODELO,
         max_tokens=1500,
         system=_SYSTEM_PROMPT_OPTIMIZADOR,
@@ -132,7 +132,7 @@ Pasos del proceso:
     return _limpiar_json(mensaje.content[0].text)
 
 
-def generar_flujo_n8n(pasos: list[dict], analisis: dict) -> dict:
+async def generar_flujo_n8n(pasos: list[dict], analisis: dict) -> dict:
     """
     Genera un workflow JSON compatible con n8n basado en los pasos y el análisis.
     Valida que el JSON tenga la estructura mínima requerida por n8n.
@@ -162,8 +162,8 @@ Pasos a automatizar:
 Análisis de automatizabilidad:
 {json.dumps(analisis, ensure_ascii=False, indent=2)[:2000]}"""
 
-    client = anthropic.Anthropic()
-    mensaje = client.messages.create(
+    client = anthropic.AsyncAnthropic()
+    mensaje = await client.messages.create(
         model=_MODELO,
         max_tokens=2048,
         messages=[{"role": "user", "content": prompt}],

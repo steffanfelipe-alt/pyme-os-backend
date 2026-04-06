@@ -3,7 +3,7 @@ from datetime import date, datetime
 from decimal import Decimal
 from typing import Optional
 
-from pydantic import BaseModel, computed_field, field_validator
+from pydantic import BaseModel, EmailStr, computed_field, field_validator
 
 from models.cliente import CondicionFiscal, TipoPersona
 from schemas.documento import DocumentoResponse
@@ -20,10 +20,10 @@ class ClienteCreate(BaseModel):
     tipo_persona: TipoPersona
     nombre: str
     cuit_cuil: str
-    email: Optional[str] = None
+    email: Optional[EmailStr] = None
     telefono: Optional[str] = None
     telefono_whatsapp: Optional[str] = None
-    email_notificaciones: Optional[str] = None
+    email_notificaciones: Optional[EmailStr] = None
     acepta_notificaciones: bool = True
     condicion_fiscal: CondicionFiscal
     contador_asignado_id: Optional[int] = None
@@ -55,10 +55,10 @@ class ClienteUpdate(BaseModel):
     tipo_persona: Optional[TipoPersona] = None
     nombre: Optional[str] = None
     cuit_cuil: Optional[str] = None
-    email: Optional[str] = None
+    email: Optional[EmailStr] = None
     telefono: Optional[str] = None
     telefono_whatsapp: Optional[str] = None
-    email_notificaciones: Optional[str] = None
+    email_notificaciones: Optional[EmailStr] = None
     acepta_notificaciones: Optional[bool] = None
     condicion_fiscal: Optional[CondicionFiscal] = None
     contador_asignado_id: Optional[int] = None

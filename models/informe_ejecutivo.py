@@ -1,6 +1,6 @@
 from datetime import datetime
 
-from sqlalchemy import DateTime, ForeignKey, Integer, String, func
+from sqlalchemy import DateTime, ForeignKey, Integer, String, Text, func
 from sqlalchemy import JSON
 from sqlalchemy.orm import Mapped, mapped_column
 
@@ -25,6 +25,7 @@ class InformeEjecutivo(Base):
     total_clientes_activos: Mapped[int | None] = mapped_column(Integer, nullable=True)
     alertas_criticas: Mapped[int | None] = mapped_column(Integer, nullable=True)
     clientes_riesgo_rojo: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    ai_interpretation: Mapped[str | None] = mapped_column(Text, nullable=True)
 
     created_at: Mapped[datetime] = mapped_column(
         DateTime, server_default=func.now(), nullable=False

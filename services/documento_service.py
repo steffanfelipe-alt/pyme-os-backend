@@ -105,17 +105,17 @@ def _comprimir_imagen(contenido: bytes) -> bytes:
     return buf.getvalue()
 
 
-def _clasificar_con_ia(extension: str, contenido: bytes) -> dict:
+async def _clasificar_con_ia(extension: str, contenido: bytes) -> dict:
     """Llama a Claude y devuelve el dict clasificado. Nunca lanza excepción."""
     try:
-        client = anthropic.Anthropic()
+        client = anthropic.AsyncAnthropic()
 
         if extension == ".pdf":
             texto = _extraer_texto_pdf(contenido)
             if not texto.strip():
                 return {"tipo": "otro", "confianza": 0.0, "resumen": "Sin texto extraíble",
                         "periodo": None, "cuit_detectado": None, "monto": None}
-            mensaje = client.messages.create(
+            mensaje = await client.messages.create(
                 model="claude-haiku-4-5-20251001",
                 max_tokens=256,
                 messages=[{"role": "user", "content": f"{_PROMPT_CLASIFICACION}\n\nDocumento:\n{texto}"}],
@@ -127,7 +127,7 @@ def _clasificar_con_ia(extension: str, contenido: bytes) -> dict:
                 datos = _comprimir_imagen(datos)
             b64 = base64.standard_b64encode(datos).decode()
             media_type = "image/jpeg" if extension in (".jpg", ".jpeg") else "image/png"
-            mensaje = client.messages.create(
+            mensaje = await client.messages.create(
                 model="claude-haiku-4-5-20251001",
                 max_tokens=256,
                 messages=[{
@@ -230,7 +230,7 @@ async def subir_documento(
 
     # Clasificar con IA
     try:
-        resultado = _clasificar_con_ia(ext, contenido)
+        resultado = await _clasificar_con_ia(ext, contenido)
         confianza = float(resultado.get("confianza") or 0.0)
         tipo_str = resultado.get("tipo", "otro")
         tipo = TipoDocumento(tipo_str) if tipo_str in TipoDocumento._value2member_map_ else TipoDocumento.otro

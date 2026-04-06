@@ -6,10 +6,24 @@ from apscheduler.schedulers.background import BackgroundScheduler
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
+from slowapi import _rate_limit_exceeded_handler
+from slowapi.errors import RateLimitExceeded
 from sqlalchemy import text
 
 from database import Base, engine
-from routers import alerts, auth_router, automatizaciones, clientes, conocimiento, dashboard, documentos, emails, empleados, plantillas, procesos, profitability, reportes, reports, risk, sop_asistido, tareas, vencimientos, workload
+
+# Registrar modelos en Base.metadata — necesario para create_all y FK resolution
+import models.studio  # noqa: F401
+import models.dashboard_conversation  # noqa: F401
+import models.assistant_conversation  # noqa: F401
+import models.email_log  # noqa: F401
+
+from routers import (
+    agent_assistant, agent_dashboard, alerts, auth_router, automatizaciones, clientes,
+    conocimiento, dashboard, documentos, emails, empleados, plantillas, procesos,
+    profitability, reportes, reports, risk, sop_asistido, tareas, vencimientos, webhooks,
+)
+from modules.asistente.router import router as asistente_router
 
 # --- Logging ---
 LOG_LEVEL = os.environ.get("LOG_LEVEL", "INFO").upper()
@@ -20,17 +34,28 @@ logging.basicConfig(
 )
 logger = logging.getLogger("pymeos")
 
+# --- Rate Limiter ---
+from rate_limiter import limiter  # noqa: E402
+
 # --- App ---
 app = FastAPI(
     title="PyME OS",
     description="Plataforma de inteligencia operativa para estudios contables",
     version="0.1.0",
 )
+app.state.limiter = limiter
+app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
 
 # --- CORS ---
+_allowed_origins_env = os.environ.get("ALLOWED_ORIGINS", "*")
+_allowed_origins = (
+    [o.strip() for o in _allowed_origins_env.split(",")]
+    if _allowed_origins_env != "*"
+    else ["*"]
+)
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origins=_allowed_origins,
     allow_methods=["*"],
     allow_headers=["*"],
 )
@@ -44,7 +69,6 @@ app.include_router(tareas.router)
 app.include_router(plantillas.router)
 app.include_router(dashboard.router)
 app.include_router(documentos.router)
-app.include_router(workload.router)
 app.include_router(profitability.router)
 app.include_router(alerts.router)
 app.include_router(risk.router)
@@ -55,6 +79,10 @@ app.include_router(conocimiento.router)
 app.include_router(automatizaciones.router)
 app.include_router(sop_asistido.router)
 app.include_router(reportes.router)
+app.include_router(agent_dashboard.router)
+app.include_router(agent_assistant.router)
+app.include_router(asistente_router)
+app.include_router(webhooks.router)
 
 
 # --- Manejo global de errores ---
@@ -63,7 +91,7 @@ async def unhandled_exception_handler(request: Request, exc: Exception) -> JSONR
     logger.error("Unhandled exception: %s\n%s", exc, traceback.format_exc())
     return JSONResponse(
         status_code=500,
-        content={"error": type(exc).__name__, "detail": str(exc)},
+        content={"error": "Internal Server Error", "detail": "Ocurrió un error inesperado. Contactá al administrador."},
     )
 
 
@@ -117,12 +145,33 @@ async def startup() -> None:
     scheduler.add_job(
         _job_renovar_watch,
         trigger="interval",
-        days=6,
+        days=3,
         id="renovar_gmail_watch",
     )
 
+    from modules.asistente.scheduler import job_resumen_diario_empleados
+    scheduler.add_job(
+        job_resumen_diario_empleados,
+        trigger="cron",
+        hour=8,
+        minute=0,
+        timezone="America/Argentina/Buenos_Aires",
+        id="asistente_resumen_diario",
+    )
+
+    from services.notificacion_service import job_resumen_semanal_email
+    scheduler.add_job(
+        job_resumen_semanal_email,
+        trigger="cron",
+        day_of_week="mon",
+        hour=8,
+        minute=0,
+        timezone="America/Argentina/Buenos_Aires",
+        id="resumen_semanal_email",
+    )
+
     scheduler.start()
-    logger.info("Scheduler iniciado — job notificaciones 08:00, watch Gmail cada 6 días")
+    logger.info("Scheduler iniciado — notificaciones 08:00, watch Gmail cada 3 días, resumen asistente 08:00 AR, resumen semanal lunes 08:00 AR")
 
 
 @app.on_event("shutdown")

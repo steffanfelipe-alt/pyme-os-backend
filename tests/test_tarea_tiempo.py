@@ -1,5 +1,6 @@
 """
 Tests de tracking de tiempo para tareas (sesiones, iniciar, pausar, completar).
+Campos oficiales: horas_estimadas (Float, horas), horas_reales (Float, horas).
 """
 import pytest
 
@@ -14,7 +15,7 @@ def tarea_base(client, db, auth_headers, cliente_test):
             "cliente_id": cliente_test.id,
             "titulo": "Tarea de prueba tiempo",
             "tipo": "tarea",
-            "tiempo_estimado_min": 60,
+            "horas_estimadas": 1.0,
         },
         headers=auth_headers,
     )
@@ -22,7 +23,7 @@ def tarea_base(client, db, auth_headers, cliente_test):
     return resp.json()
 
 
-# ─── Test 1: iniciar_tarea ────────────────────────────────────────────────────
+# --- Test 1: iniciar_tarea ---
 
 def test_iniciar_tarea(client, auth_headers, tarea_base):
     tid = tarea_base["id"]
@@ -32,12 +33,12 @@ def test_iniciar_tarea(client, auth_headers, tarea_base):
     assert data["estado"] == "en_progreso"
 
 
-def test_tarea_creada_con_tiempo_estimado(client, auth_headers, tarea_base):
-    assert tarea_base["tiempo_estimado_min"] == 60
-    assert tarea_base["tiempo_real_min"] == 0
+def test_tarea_creada_con_horas_estimadas(client, auth_headers, tarea_base):
+    assert tarea_base["horas_estimadas"] == 1.0
+    assert tarea_base["horas_reales"] is None or tarea_base["horas_reales"] == 0
 
 
-# ─── Test 2: iniciar tarea ya activa → 400 ───────────────────────────────────
+# --- Test 2: iniciar tarea ya activa -> 400 ---
 
 def test_iniciar_tarea_ya_activa(client, auth_headers, tarea_base):
     tid = tarea_base["id"]
@@ -47,7 +48,7 @@ def test_iniciar_tarea_ya_activa(client, auth_headers, tarea_base):
     assert "sesión activa" in resp.json()["detail"]
 
 
-# ─── Test 3: pausar tarea ────────────────────────────────────────────────────
+# --- Test 3: pausar tarea ---
 
 def test_pausar_tarea(client, auth_headers, tarea_base):
     tid = tarea_base["id"]
@@ -56,8 +57,9 @@ def test_pausar_tarea(client, auth_headers, tarea_base):
     assert resp.status_code == 200
     data = resp.json()
     assert data["estado"] == "pendiente"
-    # tiempo_real_min debe ser al menos 1 minuto (mínimo garantizado)
-    assert data["tiempo_real_min"] >= 1
+    # horas_reales debe ser > 0 (al menos ~0.016 h = 1 min)
+    assert data["horas_reales"] is not None
+    assert data["horas_reales"] > 0
 
 
 def test_pausar_tarea_sin_sesion(client, auth_headers, tarea_base):
@@ -66,7 +68,7 @@ def test_pausar_tarea_sin_sesion(client, auth_headers, tarea_base):
     assert resp.status_code == 400
 
 
-# ─── Test 4: completar tarea con sesión ──────────────────────────────────────
+# --- Test 4: completar tarea con sesion ---
 
 def test_completar_tarea_con_sesion(client, auth_headers, tarea_base):
     tid = tarea_base["id"]
@@ -76,31 +78,32 @@ def test_completar_tarea_con_sesion(client, auth_headers, tarea_base):
     data = resp.json()
     assert data["estado"] == "completada"
     assert data["fecha_completada"] is not None
-    assert data["tiempo_real_min"] >= 1
+    assert data["horas_reales"] is not None
+    assert data["horas_reales"] > 0
 
 
-# ─── Test 5: completar tarea sin sesión ──────────────────────────────────────
+# --- Test 5: completar tarea sin sesion ---
 
 def test_completar_tarea_sin_sesion(client, auth_headers, tarea_base):
     tid = tarea_base["id"]
-    # No iniciar — completar directamente
     resp = client.post(f"/api/tareas/{tid}/completar", headers=auth_headers)
     assert resp.status_code == 200
     assert resp.json()["estado"] == "completada"
-    # Sin sesión, tiempo_real_min se mantiene en 0
-    assert resp.json()["tiempo_real_min"] == 0
+    # Sin sesion, horas_reales se mantiene en None o 0
+    horas = resp.json().get("horas_reales")
+    assert horas is None or horas == 0
 
 
-# ─── Test 6: múltiples sesiones suman correctamente ──────────────────────────
+# --- Test 6: multiples sesiones suman correctamente ---
 
 def test_multiples_sesiones(client, auth_headers, tarea_base):
     tid = tarea_base["id"]
 
-    # Sesión 1
+    # Sesion 1
     client.post(f"/api/tareas/{tid}/iniciar", headers=auth_headers)
     client.post(f"/api/tareas/{tid}/pausar", headers=auth_headers)
 
-    # Sesión 2
+    # Sesion 2
     client.post(f"/api/tareas/{tid}/iniciar", headers=auth_headers)
     client.post(f"/api/tareas/{tid}/pausar", headers=auth_headers)
 
@@ -109,14 +112,14 @@ def test_multiples_sesiones(client, auth_headers, tarea_base):
     assert resp.status_code == 200
     data = resp.json()
     assert len(data["sesiones"]) == 2
-    # Ambas sesiones cerradas
     assert all(s["fin"] is not None for s in data["sesiones"])
-    # tiempo_real_min es la suma de ambas (>= 2 por mínimo de 1 por sesión)
-    assert data["tiempo_real_min"] >= 2
+    # horas_reales es la suma de ambas (> 0)
+    assert data["horas_reales"] is not None
+    assert data["horas_reales"] > 0
     assert data["sesion_activa"] is False
 
 
-# ─── Test 7: endpoint GET tiempo ─────────────────────────────────────────────
+# --- Test 7: endpoint GET tiempo ---
 
 def test_endpoint_tiempo(client, auth_headers, tarea_base):
     tid = tarea_base["id"]
@@ -126,12 +129,12 @@ def test_endpoint_tiempo(client, auth_headers, tarea_base):
     assert resp.status_code == 200
     data = resp.json()
     assert data["tarea_id"] == tid
-    assert data["tiempo_estimado_min"] == 60
-    assert "tiempo_real_min" in data
+    assert data["horas_estimadas"] == 1.0
+    assert "horas_reales" in data
     assert "sesiones" in data
     assert data["sesion_activa"] is True
     assert len(data["sesiones"]) == 1
-    assert data["sesiones"][0]["fin"] is None  # sesión aún abierta
+    assert data["sesiones"][0]["fin"] is None
 
 
 def test_completar_tarea_ya_completada(client, auth_headers, tarea_base):

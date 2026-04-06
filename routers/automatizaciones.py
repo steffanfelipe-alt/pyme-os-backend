@@ -21,7 +21,7 @@ router = APIRouter(prefix="/api/automatizaciones", tags=["Automatizaciones"])
 
 
 @router.post("/generar", response_model=GenerarFlujoResponse, status_code=201)
-def generar_automatizacion(
+async def generar_automatizacion(
     data: GenerarFlujoRequest,
     db: Session = Depends(get_db),
     current_user: dict = Depends(solo_dueno),
@@ -40,8 +40,8 @@ def generar_automatizacion(
         for p in pasos
     ]
 
-    analisis = analizar_pasos_automatizabilidad(pasos_dict)
-    flujo = generar_flujo_n8n(pasos_dict, analisis)
+    analisis = await analizar_pasos_automatizabilidad(pasos_dict)
+    flujo = await generar_flujo_n8n(pasos_dict, analisis)
 
     # Calcular ahorro propio como suma de minutos automatizables / 60
     pasos_automatizables = [p for p in pasos if p.es_automatizable]

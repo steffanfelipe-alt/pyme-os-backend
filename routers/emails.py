@@ -76,10 +76,13 @@ class AsignarRequest(BaseModel):
 @router.get("", response_model=list[EmailResumen])
 def listar_emails(
     estado: Optional[str] = None,
+    skip: int = 0,
+    limit: int = 50,
     db: Session = Depends(get_db),
     current_user: dict = Depends(require_rol("dueno", "contador", "administrativo", "rrhh")),
 ):
-    """Lista emails del usuario según su rol."""
+    """Lista emails del usuario según su rol. Máximo 200 por página."""
+    limit = min(limit, 200)
     query = db.query(EmailEntrante)
     rol = current_user.get("rol")
 
@@ -96,7 +99,7 @@ def listar_emails(
     if estado:
         query = query.filter(EmailEntrante.estado == estado)
 
-    return query.order_by(EmailEntrante.fecha_recibido.desc()).all()
+    return query.order_by(EmailEntrante.fecha_recibido.desc()).offset(skip).limit(limit).all()
 
 
 @router.get("/{email_id}", response_model=EmailDetalle)
@@ -303,7 +306,7 @@ async def webhook_gmail(request: Request, db: Session = Depends(get_db)):
 
     # Procesar en background — descargar y clasificar emails nuevos
     try:
-        _procesar_nuevos_emails(config, history_id, db)
+        await _procesar_nuevos_emails(config, history_id, db)
     except Exception as exc:
         logger.error("Error procesando webhook Gmail: %s", exc)
 
@@ -359,7 +362,7 @@ def _validar_pubsub_request(request: Request) -> None:
         raise HTTPException(status_code=403, detail="Token de Pub/Sub inválido")
 
 
-def _procesar_nuevos_emails(config: GmailConfig, history_id: str, db: Session) -> None:
+async def _procesar_nuevos_emails(config: GmailConfig, history_id: str, db: Session) -> None:
     """Descarga emails nuevos desde historyId y los procesa."""
     from services.gmail_service import descargar_email
     from services.email_clasificador import clasificar_email
@@ -416,7 +419,7 @@ def _procesar_nuevos_emails(config: GmailConfig, history_id: str, db: Session) -
         db.flush()
 
         try:
-            clasificacion = clasificar_email(
+            clasificacion = await clasificar_email(
                 remitente=datos["remitente"],
                 asunto=datos["asunto"] or "",
                 cuerpo=datos["cuerpo_texto"] or "",
@@ -430,3 +433,111 @@ def _procesar_nuevos_emails(config: GmailConfig, history_id: str, db: Session) -
     db.commit()
 
 
+# ---------------------------------------------------------------------------
+# Email reminder a clientes (generado por Claude)
+# ---------------------------------------------------------------------------
+
+
+class ClientReminderRequest(BaseModel):
+    cliente_id: int
+    asunto_hint: Optional[str] = None
+
+
+@router.post("/clients/reminder")
+async def enviar_reminder_cliente(
+    body: ClientReminderRequest,
+    db: Session = Depends(get_db),
+    current_user: dict = Depends(require_rol("dueno", "contador")),
+):
+    """
+    Genera un email profesional a un cliente con contenido creado por Claude API.
+    El contador no puede enviar sin que Claude genere el contenido.
+    """
+    import anthropic
+    from models.email_log import EmailLog
+
+    cliente = db.query(Cliente).filter(
+        Cliente.id == body.cliente_id, Cliente.activo == True
+    ).first()
+    if not cliente:
+        raise HTTPException(status_code=404, detail="Cliente no encontrado")
+
+    email_dest = cliente.email_notificaciones or cliente.email
+    if not email_dest:
+        raise HTTPException(status_code=422, detail="El cliente no tiene email configurado")
+
+    # Obtener documentos pendientes del período
+    from models.vencimiento import Vencimiento, EstadoVencimiento
+    from datetime import date, timedelta
+    hoy = date.today()
+    proximos = (
+        db.query(Vencimiento)
+        .filter(
+            Vencimiento.cliente_id == cliente.id,
+            Vencimiento.estado == EstadoVencimiento.pendiente,
+            Vencimiento.fecha_vencimiento <= hoy + timedelta(days=30),
+        )
+        .all()
+    )
+    venc_texto = "\n".join(
+        f"- {v.tipo.value}: vence {v.fecha_vencimiento.strftime('%d/%m/%Y')}"
+        for v in proximos
+    ) if proximos else "Sin vencimientos próximos."
+
+    nombre_estudio = os.environ.get("STUDIO_NAME", "el estudio")
+    prompt = (
+        f"Generá un email profesional y amigable de un estudio contable ({nombre_estudio}) "
+        f"a su cliente {cliente.nombre} (CUIT {cliente.cuit_cuil}).\n"
+        f"El email debe recordarle sobre documentación pendiente y/o vencimientos próximos.\n"
+        f"Vencimientos del cliente:\n{venc_texto}\n"
+        f"{'Tema sugerido: ' + body.asunto_hint if body.asunto_hint else ''}\n\n"
+        f"Devolvé SOLO un JSON con: {{\"asunto\": str, \"cuerpo\": str}}\n"
+        f"El cuerpo debe estar en texto plano (no HTML). Usá vos/usted según corresponda."
+    )
+
+    try:
+        client = anthropic.AsyncAnthropic(api_key=os.environ.get("ANTHROPIC_API_KEY", ""))
+        response = await client.messages.create(
+            model="claude-sonnet-4-6",
+            max_tokens=500,
+            messages=[{"role": "user", "content": prompt}],
+        )
+        raw = response.content[0].text.strip()
+        if raw.startswith("```"):
+            raw = raw.split("```")[1]
+            if raw.startswith("json"):
+                raw = raw[4:]
+        import json as _json
+        datos = _json.loads(raw)
+    except Exception as e:
+        logger.error("Error generando email con Claude: %s", e)
+        raise HTTPException(status_code=502, detail="No se pudo generar el contenido del email")
+
+    asunto = datos.get("asunto", f"Recordatorio — {nombre_estudio}")
+    cuerpo = datos.get("cuerpo", "")
+
+    # Enviar por SMTP
+    from modules.asistente.adaptadores.email import send_email
+    enviado = send_email(email_dest, asunto, cuerpo, nombre_estudio)
+
+    # Registrar en email_log
+    log = EmailLog(
+        studio_id=current_user.get("studio_id"),
+        recipient_type="client",
+        recipient_email=email_dest,
+        email_type="reminder",
+        subject=asunto,
+        status="sent" if enviado else "failed",
+        error_message=None if enviado else "SMTP send failed",
+    )
+    db.add(log)
+    db.commit()
+    db.refresh(log)
+
+    return {
+        "id": log.id,
+        "asunto": asunto,
+        "cuerpo": cuerpo,
+        "enviado": enviado,
+        "destinatario": email_dest,
+    }

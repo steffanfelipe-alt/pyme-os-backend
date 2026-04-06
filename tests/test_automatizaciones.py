@@ -35,8 +35,9 @@ def template_con_pasos_auto(client, db, token_dueno_auto):
 
 
 def _mock_anthropic_client(analisis_return: dict, flujo_return: dict):
-    """Crea un mock de anthropic.Anthropic() que retorna respuestas predefinidas."""
+    """Crea un mock de anthropic.AsyncAnthropic() que retorna respuestas predefinidas."""
     import json
+    from unittest.mock import AsyncMock
 
     mock_client = MagicMock()
     responses = [
@@ -45,14 +46,14 @@ def _mock_anthropic_client(analisis_return: dict, flujo_return: dict):
     ]
     call_count = {"n": 0}
 
-    def create_response(*args, **kwargs):
+    async def create_response(*args, **kwargs):
         idx = call_count["n"] % len(responses)
         call_count["n"] += 1
         msg = MagicMock()
         msg.content = [MagicMock(text=responses[idx])]
         return msg
 
-    mock_client.messages.create.side_effect = create_response
+    mock_client.messages.create = AsyncMock(side_effect=create_response)
     return mock_client
 
 
@@ -80,7 +81,7 @@ def test_generar_automatizacion(client, token_dueno_auto, template_con_pasos_aut
     tid = template_con_pasos_auto["id"]
 
     mock_client = _mock_anthropic_client(_ANALISIS_MOCK, _FLUJO_MOCK)
-    with patch("services.optimizador_service.anthropic.Anthropic", return_value=mock_client):
+    with patch("services.optimizador_service.anthropic.AsyncAnthropic", return_value=mock_client):
         resp = client.post(
             "/api/automatizaciones/generar",
             json={"template_id": tid},
@@ -103,7 +104,7 @@ def test_listar_automatizaciones(client, token_dueno_auto, template_con_pasos_au
     tid = template_con_pasos_auto["id"]
 
     mock_client = _mock_anthropic_client(_ANALISIS_MOCK, _FLUJO_MOCK)
-    with patch("services.optimizador_service.anthropic.Anthropic", return_value=mock_client):
+    with patch("services.optimizador_service.anthropic.AsyncAnthropic", return_value=mock_client):
         client.post("/api/automatizaciones/generar", json={"template_id": tid}, headers=headers)
 
     resp = client.get("/api/automatizaciones", headers=headers)
@@ -116,7 +117,7 @@ def test_obtener_automatizacion_por_id(client, token_dueno_auto, template_con_pa
     tid = template_con_pasos_auto["id"]
 
     mock_client = _mock_anthropic_client(_ANALISIS_MOCK, _FLUJO_MOCK)
-    with patch("services.optimizador_service.anthropic.Anthropic", return_value=mock_client):
+    with patch("services.optimizador_service.anthropic.AsyncAnthropic", return_value=mock_client):
         gen_resp = client.post("/api/automatizaciones/generar", json={"template_id": tid}, headers=headers)
     aut_id = gen_resp.json()["automatizacion"]["id"]
 
@@ -130,7 +131,7 @@ def test_actualizar_estado_automatizacion(client, token_dueno_auto, template_con
     tid = template_con_pasos_auto["id"]
 
     mock_client = _mock_anthropic_client(_ANALISIS_MOCK, _FLUJO_MOCK)
-    with patch("services.optimizador_service.anthropic.Anthropic", return_value=mock_client):
+    with patch("services.optimizador_service.anthropic.AsyncAnthropic", return_value=mock_client):
         gen_resp = client.post("/api/automatizaciones/generar", json={"template_id": tid}, headers=headers)
     aut_id = gen_resp.json()["automatizacion"]["id"]
 
@@ -144,7 +145,7 @@ def test_eliminar_automatizacion(client, token_dueno_auto, template_con_pasos_au
     tid = template_con_pasos_auto["id"]
 
     mock_client = _mock_anthropic_client(_ANALISIS_MOCK, _FLUJO_MOCK)
-    with patch("services.optimizador_service.anthropic.Anthropic", return_value=mock_client):
+    with patch("services.optimizador_service.anthropic.AsyncAnthropic", return_value=mock_client):
         gen_resp = client.post("/api/automatizaciones/generar", json={"template_id": tid}, headers=headers)
     aut_id = gen_resp.json()["automatizacion"]["id"]
 
@@ -161,11 +162,11 @@ def test_generar_dos_veces_actualiza_no_duplica(client, token_dueno_auto, templa
     tid = template_con_pasos_auto["id"]
 
     mock_client = _mock_anthropic_client(_ANALISIS_MOCK, _FLUJO_MOCK)
-    with patch("services.optimizador_service.anthropic.Anthropic", return_value=mock_client):
+    with patch("services.optimizador_service.anthropic.AsyncAnthropic", return_value=mock_client):
         client.post("/api/automatizaciones/generar", json={"template_id": tid}, headers=headers)
 
     mock_client2 = _mock_anthropic_client(_ANALISIS_MOCK, _FLUJO_MOCK)
-    with patch("services.optimizador_service.anthropic.Anthropic", return_value=mock_client2):
+    with patch("services.optimizador_service.anthropic.AsyncAnthropic", return_value=mock_client2):
         client.post("/api/automatizaciones/generar", json={"template_id": tid}, headers=headers)
 
     resp = client.get("/api/automatizaciones", headers=headers)
@@ -180,7 +181,7 @@ def test_flujo_invalido_retorna_422(client, token_dueno_auto, template_con_pasos
 
     flujo_invalido = {"workflows": [], "version": "1.0"}  # falta nodes, connections, settings
     mock_client = _mock_anthropic_client(_ANALISIS_MOCK, flujo_invalido)
-    with patch("services.optimizador_service.anthropic.Anthropic", return_value=mock_client):
+    with patch("services.optimizador_service.anthropic.AsyncAnthropic", return_value=mock_client):
         resp = client.post("/api/automatizaciones/generar", json={"template_id": tid}, headers=headers)
     assert resp.status_code == 422
 
@@ -196,12 +197,13 @@ def test_optimizar_descripcion(client, token_dueno_auto):
         ],
     }
     import json
+    from unittest.mock import AsyncMock
     mock_client = MagicMock()
     mock_msg = MagicMock()
     mock_msg.content = [MagicMock(text=json.dumps(template_mock))]
-    mock_client.messages.create.return_value = mock_msg
+    mock_client.messages.create = AsyncMock(return_value=mock_msg)
 
-    with patch("services.optimizador_service.anthropic.Anthropic", return_value=mock_client):
+    with patch("services.optimizador_service.anthropic.AsyncAnthropic", return_value=mock_client):
         resp = client.post(
             "/api/procesos/optimizar/desde-descripcion",
             json={"descripcion": "cuando entra un cliente nuevo hay que juntar documentos y explicarles cómo trabajamos"},

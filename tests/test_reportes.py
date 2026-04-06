@@ -264,3 +264,58 @@ def test_reporte_resumen_sin_periodo(client, headers_dueno):
 def test_periodo_invalido(client, headers_dueno):
     resp = client.get("/api/reportes/carga?periodo=2025-13", headers=headers_dueno)
     assert resp.status_code == 400
+
+
+# ─── Studio identity ─────────────────────────────────────────────────────────
+
+def test_actualizar_nombre_estudio(client, headers_dueno):
+    resp = client.put(
+        "/api/reportes/config",
+        json={"nombre_estudio": "Estudio Contable López", "email_estudio": "info@lopez.com"},
+        headers=headers_dueno,
+    )
+    assert resp.status_code == 200
+    data = resp.json()
+    assert data["nombre_estudio"] == "Estudio Contable López"
+    assert data["email_estudio"] == "info@lopez.com"
+
+
+def test_config_incluye_nombre_y_email(client, headers_dueno):
+    client.put("/api/reportes/config", json={"nombre_estudio": "López & Asoc."}, headers=headers_dueno)
+    resp = client.get("/api/reportes/config", headers=headers_dueno)
+    assert resp.status_code == 200
+    assert resp.json()["nombre_estudio"] == "López & Asoc."
+
+
+# ─── Export CSV ──────────────────────────────────────────────────────────────
+
+def test_export_vencimientos_csv(client, db, headers_dueno, cliente_test):
+    venc = Vencimiento(
+        cliente_id=cliente_test.id,
+        tipo=TipoVencimiento.iva,
+        descripcion="IVA test",
+        fecha_vencimiento=date.today(),
+        estado=EstadoVencimiento.pendiente,
+    )
+    db.add(venc)
+    db.commit()
+
+    resp = client.get(f"/api/reportes/vencimientos/export.csv?periodo={PERIODO_ACTUAL}", headers=headers_dueno)
+    assert resp.status_code == 200
+    assert "text/csv" in resp.headers["content-type"]
+    content = resp.text
+    assert "cliente" in content
+    assert "IVA test" in content or "iva" in content
+
+
+def test_export_carga_csv(client, headers_dueno):
+    resp = client.get(f"/api/reportes/carga/export.csv?periodo={PERIODO_ACTUAL}", headers=headers_dueno)
+    assert resp.status_code == 200
+    assert "text/csv" in resp.headers["content-type"]
+    assert "empleado" in resp.text
+
+
+def test_export_rentabilidad_csv_sin_tarifa(client, headers_dueno):
+    """Sin tarifa configurada → 400 (igual que el endpoint JSON)."""
+    resp = client.get(f"/api/reportes/rentabilidad/export.csv?periodo={PERIODO_ACTUAL}", headers=headers_dueno)
+    assert resp.status_code == 400

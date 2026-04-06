@@ -28,7 +28,7 @@ from schemas.dashboard import (
     TiempoRealCliente,
     VencimientoSinDoc,
 )
-from services import alert_service, profitability_service, workload_service
+from services import alert_service, profitability_service
 
 logger = logging.getLogger("pymeos")
 
@@ -191,9 +191,36 @@ def obtener_dashboard(db: Session, contador_id: Optional[int] = None) -> Dashboa
     # BLOQUE CARGA
     # ══════════════════════════════════════════════════════════════════════
 
-    panel = workload_service.obtener_panel_carga(db)
-    emp_info = {e.id: e for e in db.query(Empleado).filter(Empleado.activo == True).all()}
+    empleados_activos = db.query(Empleado).filter(Empleado.activo == True).all()
+    emp_info = {e.id: e for e in empleados_activos}
 
+    # Cálculo de carga inline (workload module eliminado en v2)
+    def _calcular_panel_carga(empleados: list) -> list:
+        panel = []
+        for emp in empleados:
+            tareas_activas = db.query(Tarea).filter(
+                Tarea.empleado_id == emp.id,
+                Tarea.estado.in_([EstadoTarea.pendiente, EstadoTarea.en_progreso]),
+                Tarea.activo == True,
+            ).all()
+            horas_comprometidas = sum(
+                float(t.horas_estimadas or 0) for t in tareas_activas
+            )
+            horas_disponibles = float(emp.capacidad_horas_mes or 160)
+            porcentaje_carga = round((horas_comprometidas / horas_disponibles) * 100, 1) if horas_disponibles > 0 else 0.0
+            nivel = "alta" if porcentaje_carga >= 90 else ("media" if porcentaje_carga >= 60 else "baja")
+            panel.append({
+                "empleado_id": emp.id,
+                "nombre": emp.nombre,
+                "horas_comprometidas": round(horas_comprometidas, 1),
+                "horas_disponibles": horas_disponibles,
+                "porcentaje_carga": porcentaje_carga,
+                "nivel": nivel,
+                "cantidad_tareas": len(tareas_activas),
+            })
+        return panel
+
+    panel = _calcular_panel_carga(empleados_activos)
     carga_por_contador = []
     for p in panel:
         if contador_id is not None and p["empleado_id"] != contador_id:

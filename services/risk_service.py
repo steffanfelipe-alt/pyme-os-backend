@@ -1,11 +1,16 @@
+import logging
+import os
 from datetime import date, datetime, timedelta
 
 from fastapi import HTTPException
 from sqlalchemy.orm import Session
 
+from database import SessionLocal
 from models.cliente import Cliente, CondicionFiscal
 from models.documento import Documento, EstadoDocumento
 from models.tarea import EstadoTarea, Tarea
+
+logger = logging.getLogger("pymeos")
 
 
 # Complejidad fiscal fija por condición
@@ -86,7 +91,7 @@ def _score_a_nivel(score: float) -> str:
 
 
 def calcular_score_cliente(db: Session, cliente_id: int) -> dict:
-    """Calcula y persiste el risk_score del cliente. Retorna el resultado."""
+    """Calcula y persiste el risk_score del cliente. risk_explanation se genera en background."""
     cliente = db.query(Cliente).filter(
         Cliente.id == cliente_id,
         Cliente.activo == True,
@@ -105,7 +110,16 @@ def calcular_score_cliente(db: Session, cliente_id: int) -> dict:
     cliente.risk_score = score
     cliente.risk_level = nivel
     cliente.risk_calculated_at = datetime.utcnow()
+    cliente.risk_explanation = None  # se regenera en background
     db.commit()
+
+    factores = {
+        "v1_dias_sin_actividad": round(v1, 2),
+        "v2_docs_pendientes": round(v2, 2),
+        "v3_historial_demoras": round(v3, 2),
+        "v4_complejidad": round(v4, 2),
+        "condicion_fiscal": cliente.condicion_fiscal.value if hasattr(cliente.condicion_fiscal, "value") else str(cliente.condicion_fiscal),
+    }
 
     return {
         "id": cliente.id,
@@ -113,8 +127,54 @@ def calcular_score_cliente(db: Session, cliente_id: int) -> dict:
         "cuit_cuil": cliente.cuit_cuil,
         "risk_score": score,
         "risk_level": nivel,
+        "risk_explanation": None,
         "risk_calculated_at": cliente.risk_calculated_at.isoformat(),
+        "_factores": factores,  # usado por el background task
     }
+
+
+async def generar_risk_explanation_background(cliente_id: int, factores: dict) -> None:
+    """
+    Llama a Claude API para generar la explicación del risk score.
+    Diseñado para correr como BackgroundTask — nunca bloquea el endpoint.
+    """
+    try:
+        import anthropic
+        from prompts.risk import SYSTEM_PROMPT, USER_PROMPT_TEMPLATE
+
+        with SessionLocal() as db:
+            cliente = db.query(Cliente).filter(Cliente.id == cliente_id).first()
+            if not cliente:
+                return
+
+            nivel_map = {"verde": "bajo", "amarillo": "moderado", "rojo": "alto"}
+            nivel_texto = nivel_map.get(cliente.risk_level or "", cliente.risk_level or "")
+
+            user_msg = USER_PROMPT_TEMPLATE.format(
+                nombre=cliente.nombre,
+                score=cliente.risk_score,
+                nivel=nivel_texto,
+                v1_dias_sin_actividad=factores.get("v1_dias_sin_actividad", 0),
+                v2_docs_pendientes=factores.get("v2_docs_pendientes", 0),
+                v3_historial_demoras=factores.get("v3_historial_demoras", 0),
+                v4_complejidad=factores.get("v4_complejidad", 0),
+                condicion_fiscal=factores.get("condicion_fiscal", ""),
+            )
+
+            client = anthropic.AsyncAnthropic(api_key=os.environ.get("ANTHROPIC_API_KEY", ""))
+            response = await client.messages.create(
+                model="claude-sonnet-4-6",
+                max_tokens=200,
+                system=SYSTEM_PROMPT,
+                messages=[{"role": "user", "content": user_msg}],
+            )
+            explanation = response.content[0].text.strip()
+
+            cliente.risk_explanation = explanation
+            db.commit()
+            logger.info("risk_explanation generada para cliente id=%d", cliente_id)
+    except Exception as e:
+        logger.error("Error generando risk_explanation para cliente id=%d: %s", cliente_id, e)
 
 
 def listar_clientes_por_riesgo(db: Session) -> list[dict]:
@@ -127,6 +187,7 @@ def listar_clientes_por_riesgo(db: Session) -> list[dict]:
             "cuit_cuil": c.cuit_cuil,
             "risk_score": c.risk_score,
             "risk_level": c.risk_level,
+            "risk_explanation": c.risk_explanation,
             "risk_calculated_at": c.risk_calculated_at.isoformat() if c.risk_calculated_at else None,
         }
         for c in clientes

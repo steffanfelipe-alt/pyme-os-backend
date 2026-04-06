@@ -48,6 +48,7 @@ class Cliente(Base):
     risk_score: Mapped[float | None] = mapped_column(Float, nullable=True)
     risk_level: Mapped[str | None] = mapped_column(String(10), nullable=True)
     risk_calculated_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    risk_explanation: Mapped[str | None] = mapped_column(Text, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now(), nullable=False)
     updated_at: Mapped[datetime] = mapped_column(
         DateTime, server_default=func.now(), onupdate=func.now(), nullable=False

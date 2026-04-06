@@ -24,7 +24,7 @@ router = APIRouter(prefix="/api/sop", tags=["SOP Asistido"])
 # ─── Generación asistida por IA (antes de /{id} para evitar conflicto de rutas) ─
 
 @router.post("/generar-desde-descripcion", response_model=SopDocumentoResponse, status_code=201)
-def generar_sop_desde_descripcion(
+async def generar_sop_desde_descripcion(
     data: GenerarSopRequest,
     db: Session = Depends(get_db),
     current_user: dict = Depends(require_rol("dueno", "contador")),
@@ -32,7 +32,7 @@ def generar_sop_desde_descripcion(
     """Genera un SOP en estado borrador desde una descripción informal en lenguaje natural."""
     if not data.descripcion.strip():
         raise HTTPException(status_code=422, detail="La descripción es requerida")
-    sop = sop_asistido_service.generar_sop_desde_descripcion(
+    sop = await sop_asistido_service.generar_sop_desde_descripcion(
         db,
         data.descripcion,
         data.area,
@@ -152,13 +152,13 @@ def archivar_sop(
 # ─── Integración con automatizaciones ────────────────────────────────────────
 
 @router.post("/{sop_id}/generar-automatizacion", response_model=AutomatizacionResponse, status_code=201)
-def generar_automatizacion_desde_sop(
+async def generar_automatizacion_desde_sop(
     sop_id: int,
     db: Session = Depends(get_db),
     current_user: dict = Depends(require_rol("dueno")),
 ):
     """Genera una automatización candidata desde los pasos automatizables del SOP."""
-    aut = sop_asistido_service.generar_automatizacion_desde_sop(db, sop_id)
+    aut = await sop_asistido_service.generar_automatizacion_desde_sop(db, sop_id)
     return AutomatizacionResponse.model_validate(aut)
 
 

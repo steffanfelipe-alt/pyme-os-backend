@@ -64,8 +64,9 @@ def test_generar_informe_estructura_base(client, auth_headers):
     assert response.status_code == 201
     data = response.json()
     for key in ("id", "periodo", "total_clientes_activos", "alertas_criticas",
-                "clientes_riesgo_rojo", "resumen_vencimientos", "resumen_workload",
-                "resumen_rentabilidad", "resumen_alertas", "resumen_riesgo", "created_at"):
+                "clientes_riesgo_rojo", "resumen_vencimientos",
+                "resumen_rentabilidad", "resumen_alertas", "resumen_riesgo",
+                "ai_interpretation", "created_at"):
         assert key in data, f"Falta la key: {key}"
     assert data["periodo"] == PERIODO
     assert data["total_clientes_activos"] == 0

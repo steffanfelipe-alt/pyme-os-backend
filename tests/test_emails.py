@@ -64,8 +64,10 @@ def _crear_email(db, **kwargs) -> EmailEntrante:
 # test_clasificacion_email_cliente
 # ---------------------------------------------------------------------------
 
-def test_clasificacion_email_cliente(db):
+@pytest.mark.asyncio
+async def test_clasificacion_email_cliente(db):
     """Email de un cliente conocido: se clasifica y se asigna a su contador."""
+    from unittest.mock import AsyncMock
     from services.email_clasificador import clasificar_email
     from services.email_router_service import procesar_email_entrante
 
@@ -73,23 +75,12 @@ def test_clasificacion_email_cliente(db):
     cliente = _crear_cliente(db, "García SA", "20-11111111-1", contador.id)
     db.commit()
 
-    mock_result = {
-        "categoria": "consulta_fiscal",
-        "urgencia": "media",
-        "resumen": "El cliente pregunta sobre IVA.",
-        "remitente_tipo": "cliente_registrado",
-        "requiere_respuesta": True,
-        "borrador_respuesta": "Estimado cliente...",
-        "cliente_cuit": "20-11111111-1",
-        "confianza": 0.9,
-    }
-
-    with patch("services.email_clasificador.anthropic.Anthropic") as mock_anthropic:
+    with patch("services.email_clasificador.anthropic.AsyncAnthropic") as mock_anthropic:
         mock_msg = MagicMock()
         mock_msg.content = [MagicMock(text='{"categoria":"consulta_fiscal","urgencia":"media","resumen":"El cliente pregunta sobre IVA.","remitente_tipo":"cliente_registrado","requiere_respuesta":true,"borrador_respuesta":"Estimado cliente...","cliente_cuit":"20-11111111-1","confianza":0.9}')]
-        mock_anthropic.return_value.messages.create.return_value = mock_msg
+        mock_anthropic.return_value.messages.create = AsyncMock(return_value=mock_msg)
 
-        resultado = clasificar_email(
+        resultado = await clasificar_email(
             remitente="garcia@empresa.com",
             asunto="Consulta IVA",
             cuerpo="Quisiera saber sobre IVA",

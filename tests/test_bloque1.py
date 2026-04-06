@@ -176,27 +176,28 @@ _FLUJO_MOCK = {
 
 
 def _mock_anthropic(analisis=None, flujo=None):
+    from unittest.mock import AsyncMock
     analisis = analisis or _ANALISIS_MOCK
     flujo = flujo or _FLUJO_MOCK
     mock_client = MagicMock()
     responses = [json.dumps(analisis), json.dumps(flujo)]
     call_count = {"n": 0}
 
-    def create_response(*args, **kwargs):
+    async def create_response(*args, **kwargs):
         idx = call_count["n"] % len(responses)
         call_count["n"] += 1
         msg = MagicMock()
         msg.content = [MagicMock(text=responses[idx])]
         return msg
 
-    mock_client.messages.create.side_effect = create_response
+    mock_client.messages.create = AsyncMock(side_effect=create_response)
     return mock_client
 
 
 def _crear_automatizacion(client, headers, template_b1):
     tid = template_b1["id"]
     mock_client = _mock_anthropic()
-    with patch("services.optimizador_service.anthropic.Anthropic", return_value=mock_client):
+    with patch("services.optimizador_service.anthropic.AsyncAnthropic", return_value=mock_client):
         resp = client.post(
             "/api/automatizaciones/generar",
             json={"template_id": tid},

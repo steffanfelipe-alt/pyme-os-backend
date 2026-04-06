@@ -37,3 +37,93 @@ def test_endpoint_protegido_sin_token(client):
     response = client.get("/api/clientes")
     # HTTPBearer devuelve 403 cuando no hay credenciales (comportamiento de FastAPI)
     assert response.status_code in (401, 403)
+
+
+# ---------------------------------------------------------------------------
+# Forgot / Reset password
+# ---------------------------------------------------------------------------
+
+def test_forgot_password_siempre_200(client):
+    """forgot-password responde 200 aunque el email no exista (no revelar info)."""
+    resp = client.post("/api/auth/forgot-password", json={"email": "noexiste@test.com"})
+    assert resp.status_code == 200
+    assert "detail" in resp.json()
+
+
+def test_forgot_password_genera_token(client, db):
+    """Cuando el usuario existe, se genera un reset_token en la DB."""
+    from models.usuario import Usuario
+    from auth import hash_password
+
+    usuario = Usuario(email="reset@test.com", password_hash=hash_password("old123"), nombre="Test")
+    db.add(usuario)
+    db.commit()
+    db.refresh(usuario)
+
+    resp = client.post("/api/auth/forgot-password", json={"email": "reset@test.com"})
+    assert resp.status_code == 200
+
+    db.refresh(usuario)
+    assert usuario.reset_token is not None
+    assert usuario.reset_token_expires_at is not None
+
+
+def test_reset_password_exitoso(client, db):
+    """Token válido → actualiza contraseña y lo invalida."""
+    import secrets
+    from datetime import datetime, timedelta, timezone
+    from models.usuario import Usuario
+    from auth import hash_password, verify_password
+
+    token = secrets.token_urlsafe(32)
+    usuario = Usuario(
+        email="resetok@test.com",
+        password_hash=hash_password("oldpass"),
+        nombre="Reset Test",
+        reset_token=token,
+        reset_token_expires_at=datetime.now(timezone.utc) + timedelta(minutes=15),
+    )
+    db.add(usuario)
+    db.commit()
+
+    resp = client.post("/api/auth/reset-password", json={"token": token, "new_password": "newpass123"})
+    assert resp.status_code == 200
+
+    db.refresh(usuario)
+    assert verify_password("newpass123", usuario.password_hash)
+    assert usuario.reset_token is None
+    assert usuario.reset_token_expires_at is None
+
+
+def test_reset_password_token_invalido(client):
+    """Token inexistente → 400."""
+    resp = client.post("/api/auth/reset-password", json={"token": "inventado", "new_password": "newpass123"})
+    assert resp.status_code == 400
+
+
+def test_reset_password_token_expirado(client, db):
+    """Token expirado → 400."""
+    import secrets
+    from datetime import datetime, timedelta, timezone
+    from models.usuario import Usuario
+    from auth import hash_password
+
+    token = secrets.token_urlsafe(32)
+    usuario = Usuario(
+        email="expired@test.com",
+        password_hash=hash_password("oldpass"),
+        nombre="Expired Test",
+        reset_token=token,
+        reset_token_expires_at=datetime.now(timezone.utc) - timedelta(minutes=1),
+    )
+    db.add(usuario)
+    db.commit()
+
+    resp = client.post("/api/auth/reset-password", json={"token": token, "new_password": "newpass123"})
+    assert resp.status_code == 400
+
+
+def test_reset_password_demasiado_corta(client):
+    """Contraseña menor a 8 caracteres → 422."""
+    resp = client.post("/api/auth/reset-password", json={"token": "cualquiera", "new_password": "abc"})
+    assert resp.status_code == 422

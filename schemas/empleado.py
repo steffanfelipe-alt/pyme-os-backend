@@ -1,7 +1,7 @@
 from datetime import date, datetime
 from typing import Optional
 
-from pydantic import BaseModel
+from pydantic import BaseModel, EmailStr
 
 from models.empleado import RolEmpleado
 from schemas.cliente import TareaFicha
@@ -9,14 +9,14 @@ from schemas.cliente import TareaFicha
 
 class EmpleadoCreate(BaseModel):
     nombre: str
-    email: str
+    email: EmailStr
     rol: RolEmpleado
     capacidad_horas_mes: int = 160
 
 
 class EmpleadoUpdate(BaseModel):
     nombre: Optional[str] = None
-    email: Optional[str] = None
+    email: Optional[EmailStr] = None
     rol: Optional[RolEmpleado] = None
     capacidad_horas_mes: Optional[int] = None
     activo: Optional[bool] = None

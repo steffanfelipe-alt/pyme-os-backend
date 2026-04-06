@@ -1,7 +1,10 @@
+import csv
+import io
 from typing import Optional
 
 from fastapi import APIRouter, Depends, HTTPException
-from pydantic import BaseModel
+from fastapi.responses import StreamingResponse
+from pydantic import BaseModel, EmailStr
 from sqlalchemy.orm import Session
 
 from auth_dependencies import solo_dueno
@@ -24,6 +27,8 @@ def obtener_config(
 
 
 class ConfigUpdate(BaseModel):
+    nombre_estudio: Optional[str] = None
+    email_estudio: Optional[EmailStr] = None
     tarifa_hora_pesos: Optional[float] = None
     moneda: Optional[str] = None
     zona_horaria: Optional[str] = None
@@ -35,9 +40,14 @@ def actualizar_config(
     db: Session = Depends(get_db),
     current_user: dict = Depends(solo_dueno),
 ):
-    """Actualiza tarifa-hora, moneda y/o zona horaria del estudio."""
+    """Actualiza configuración del estudio: nombre, email, tarifa-hora, moneda y/o zona horaria."""
     return reportes_service.actualizar_config(
-        db, data.tarifa_hora_pesos, data.moneda, data.zona_horaria
+        db,
+        data.tarifa_hora_pesos,
+        data.moneda,
+        data.zona_horaria,
+        data.nombre_estudio,
+        data.email_estudio,
     )
 
 
@@ -146,3 +156,103 @@ def reporte_madurez(
     Survival / Stationary / Scalable / Saleable.
     """
     return reportes_service.reporte_madurez(db)
+
+
+# ─── Exports CSV ─────────────────────────────────────────────────────────────
+
+@router.get("/vencimientos/export.csv")
+def exportar_vencimientos_csv(
+    periodo: Optional[str] = None,
+    estado: Optional[EstadoVencimiento] = None,
+    db: Session = Depends(get_db),
+    current_user: dict = Depends(solo_dueno),
+):
+    """Descarga vencimientos del período como CSV."""
+    data = reportes_service.reporte_vencimientos(db, periodo, estado)
+    vencimientos = data.get("vencimientos", [])
+
+    output = io.StringIO()
+    writer = csv.writer(output)
+    writer.writerow(["cliente", "tipo", "descripcion", "fecha_vencimiento", "estado", "dias_restantes", "alerta"])
+    for v in vencimientos:
+        writer.writerow([
+            v.get("cliente_nombre"),
+            v.get("tipo"),
+            v.get("descripcion", ""),
+            v.get("fecha_vencimiento"),
+            v.get("estado"),
+            v.get("dias_restantes", ""),
+            v.get("alerta", False),
+        ])
+
+    output.seek(0)
+    filename = f"vencimientos_{periodo or 'actual'}.csv"
+    return StreamingResponse(
+        iter([output.getvalue()]),
+        media_type="text/csv",
+        headers={"Content-Disposition": f"attachment; filename={filename}"},
+    )
+
+
+@router.get("/rentabilidad/export.csv")
+def exportar_rentabilidad_csv(
+    periodo: Optional[str] = None,
+    db: Session = Depends(get_db),
+    current_user: dict = Depends(solo_dueno),
+):
+    """Descarga rentabilidad por cliente del período como CSV."""
+    data = reportes_service.reporte_rentabilidad(db, periodo)
+    clientes = data.get("clientes", [])
+
+    output = io.StringIO()
+    writer = csv.writer(output)
+    writer.writerow(["cliente", "honorario_mensual", "horas_reales", "costo_estimado", "rentabilidad", "margen_pct", "alerta"])
+    for c in clientes:
+        writer.writerow([
+            c.get("nombre"),
+            c.get("honorario_mensual", ""),
+            c.get("horas_reales", 0),
+            c.get("costo_estimado", 0),
+            c.get("rentabilidad", ""),
+            c.get("margen_pct", ""),
+            c.get("alerta", False),
+        ])
+
+    output.seek(0)
+    filename = f"rentabilidad_{periodo or 'actual'}.csv"
+    return StreamingResponse(
+        iter([output.getvalue()]),
+        media_type="text/csv",
+        headers={"Content-Disposition": f"attachment; filename={filename}"},
+    )
+
+
+@router.get("/carga/export.csv")
+def exportar_carga_csv(
+    periodo: Optional[str] = None,
+    db: Session = Depends(get_db),
+    current_user: dict = Depends(solo_dueno),
+):
+    """Descarga carga de trabajo por empleado del período como CSV."""
+    data = reportes_service.reporte_carga(db, periodo)
+    empleados = data.get("empleados", [])
+
+    output = io.StringIO()
+    writer = csv.writer(output)
+    writer.writerow(["empleado", "tareas_pendientes", "tareas_en_curso", "tareas_completadas_periodo", "nivel_carga"])
+    for e in empleados:
+        writer.writerow([
+            e.get("nombre"),
+            e.get("tareas_pendientes", 0),
+            e.get("tareas_en_curso", 0),
+            e.get("tareas_completadas_periodo", 0),
+            e.get("nivel_carga", ""),
+        ])
+
+    output.seek(0)
+    filename = f"carga_{periodo or 'actual'}.csv"
+    return StreamingResponse(
+        iter([output.getvalue()]),
+        media_type="text/csv",
+        headers={"Content-Disposition": f"attachment; filename={filename}"},
+    )

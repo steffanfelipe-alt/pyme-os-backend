@@ -28,6 +28,14 @@ import models.informe_ejecutivo
 import models.proceso
 import models.tarea_sesion
 import models.studio_config
+import models.sop_documento
+import models.gmail_config
+import models.email_entrante
+import models.studio
+import models.dashboard_conversation
+import models.assistant_conversation
+import models.email_log
+from modules.asistente import models as _asistente_models  # noqa: F401
 
 target_metadata = Base.metadata
 

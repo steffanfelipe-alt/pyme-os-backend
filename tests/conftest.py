@@ -2,13 +2,14 @@ import os
 
 # CRÍTICO: setear env vars ANTES de importar cualquier módulo del proyecto
 # load_dotenv() en database.py no sobrescribe vars que ya existen en el entorno
-os.environ.setdefault("DATABASE_URL", "sqlite:///./test.db")
+os.environ.setdefault("DATABASE_URL", "sqlite://")
 os.environ.setdefault("SECRET_KEY", "test-supersecret-key-for-pytest-only")
 
 import pytest
 from fastapi.testclient import TestClient
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
+from sqlalchemy.pool import StaticPool
 
 from database import Base, get_db
 from main import app
@@ -19,11 +20,12 @@ from models.empleado import Empleado, RolEmpleado
 from models.vencimiento import Vencimiento, TipoVencimiento, EstadoVencimiento
 from datetime import date
 
-SQLALCHEMY_TEST_URL = "sqlite:///./test.db"
+SQLALCHEMY_TEST_URL = "sqlite://"  # in-memory: no locking, aislado por proceso
 
 engine_test = create_engine(
     SQLALCHEMY_TEST_URL,
     connect_args={"check_same_thread": False},
+    poolclass=StaticPool,  # todas las conexiones comparten la misma DB in-memory
 )
 TestingSessionLocal = sessionmaker(
     autocommit=False, autoflush=False, bind=engine_test,

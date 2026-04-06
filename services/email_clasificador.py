@@ -41,7 +41,7 @@ Cuerpo: {cuerpo}"""
 _UMBRAL_CONFIANZA = 0.5
 
 
-def clasificar_email(
+async def clasificar_email(
     remitente: str,
     asunto: str,
     cuerpo: str,
@@ -70,8 +70,8 @@ def clasificar_email(
         cuerpo=cuerpo[:4000] if cuerpo else "(sin cuerpo)",
     )
 
-    client = anthropic.Anthropic()
-    mensaje = client.messages.create(
+    client = anthropic.AsyncAnthropic()
+    mensaje = await client.messages.create(
         model="claude-haiku-4-5-20251001",
         max_tokens=512,
         messages=[{"role": "user", "content": prompt}],

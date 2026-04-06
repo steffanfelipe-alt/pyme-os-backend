@@ -11,12 +11,13 @@ from sqlalchemy.orm import Session
 from database import SessionLocal
 from models.cliente import Cliente
 from models.empleado import Empleado
+from models.studio_config import StudioConfig
 from models.vencimiento import EstadoVencimiento, Vencimiento
 from services import alert_service
 
 logger = logging.getLogger("pymeos")
 
-UMBRAL_DIAS = 7
+_UMBRAL_DIAS_DEFAULT = 7
 
 MAIL_FROM = os.environ.get("MAIL_FROM", "")
 MAIL_TO_FALLBACK = os.environ.get("MAIL_TO", "")
@@ -67,14 +68,18 @@ def job_notificaciones_vencimientos() -> None:
     """Job diario: agrupa vencimientos por contador asignado y envía un email a cada uno."""
     logger.info("Job notificaciones — iniciando")
 
-    if not all([MAIL_FROM, MAIL_TO_FALLBACK, SMTP_HOST, SMTP_USER, SMTP_PASSWORD]):
-        logger.warning("Job notificaciones — variables SMTP no configuradas, omitiendo")
-        return
-
     db: Session = SessionLocal()
     try:
         hoy = date.today()
-        limite = hoy + timedelta(days=UMBRAL_DIAS)
+
+        # Leer umbral desde DB; fallback al valor por defecto si no hay config
+        studio_config = db.query(StudioConfig).first()
+        umbral_dias = (
+            studio_config.umbral_dias_notificacion
+            if studio_config is not None
+            else _UMBRAL_DIAS_DEFAULT
+        )
+        limite = hoy + timedelta(days=umbral_dias)
 
         # Auto-marcar vencidos
         db.query(Vencimiento).filter(
@@ -83,12 +88,17 @@ def job_notificaciones_vencimientos() -> None:
         ).update({"estado": EstadoVencimiento.vencido})
         db.commit()
 
-        # Actualizar alertas de vencimientos
+        # Actualizar alertas de vencimientos — siempre, independiente del SMTP
         try:
             alert_service.generar_alertas(db)
             logger.info("Job notificaciones — alertas actualizadas")
         except Exception as e:
             logger.error("Job notificaciones — error al generar alertas: %s", e)
+
+        # Envío de emails — solo si SMTP está configurado
+        if not all([MAIL_FROM, MAIL_TO_FALLBACK, SMTP_HOST, SMTP_USER, SMTP_PASSWORD]):
+            logger.warning("Job notificaciones — variables SMTP no configuradas, emails omitidos")
+            return
 
         # Buscar vencimientos próximos + vencidos con datos del cliente
         rows = (
@@ -157,5 +167,100 @@ def job_notificaciones_vencimientos() -> None:
 
     except Exception as e:
         logger.error("Job notificaciones — error general: %s", e)
+    finally:
+        db.close()
+
+
+def job_resumen_semanal_email() -> None:
+    """Job semanal (lunes 8:00 AM AR): envía resumen consolidado al dueño del estudio."""
+    logger.info("Job resumen semanal — iniciando")
+
+    db: Session = SessionLocal()
+    try:
+        from models.empleado import RolEmpleado
+        from models.alerta import AlertaVencimiento
+
+        # Buscar dueño del estudio
+        dueno = db.query(Empleado).filter(
+            Empleado.rol == RolEmpleado.dueno,
+            Empleado.activo == True,
+        ).first()
+        if not dueno or not dueno.email:
+            logger.warning("Job resumen semanal — no hay dueño con email configurado")
+            return
+
+        if not all([MAIL_FROM, SMTP_HOST, SMTP_USER, SMTP_PASSWORD]):
+            logger.warning("Job resumen semanal — SMTP no configurado")
+            return
+
+        hoy = date.today()
+        fin_semana = hoy + timedelta(days=7)
+
+        # Vencimientos de la semana
+        vencimientos_semana = (
+            db.query(Vencimiento, Cliente)
+            .join(Cliente, Vencimiento.cliente_id == Cliente.id)
+            .filter(
+                Vencimiento.estado == EstadoVencimiento.pendiente,
+                Vencimiento.fecha_vencimiento >= hoy,
+                Vencimiento.fecha_vencimiento <= fin_semana,
+                Cliente.activo == True,
+            )
+            .order_by(Vencimiento.fecha_vencimiento)
+            .all()
+        )
+
+        # Alertas activas
+        alertas_activas = db.query(AlertaVencimiento).filter(
+            AlertaVencimiento.resuelta_at == None
+        ).count()
+
+        alertas_criticas = db.query(AlertaVencimiento).filter(
+            AlertaVencimiento.resuelta_at == None,
+            AlertaVencimiento.nivel == "critica",
+        ).count()
+
+        # Clientes con documentación pendiente
+        clientes_activos = db.query(Cliente).filter(Cliente.activo == True).count()
+
+        # Construir email
+        lineas = [
+            f"<h2>Resumen semanal — {hoy.strftime('%d/%m/%Y')}</h2>",
+            f"<p><b>Clientes activos:</b> {clientes_activos}</p>",
+            f"<p><b>Alertas activas:</b> {alertas_activas} ({alertas_criticas} críticas)</p>",
+            f"<h3>Vencimientos esta semana ({len(vencimientos_semana)})</h3>",
+        ]
+
+        if vencimientos_semana:
+            lineas.append("<ul>")
+            for v, c in vencimientos_semana[:20]:
+                dias = (v.fecha_vencimiento - hoy).days
+                lineas.append(f"<li>{v.tipo.value} — {c.nombre} ({v.fecha_vencimiento.strftime('%d/%m')} — {dias}d)</li>")
+            lineas.append("</ul>")
+        else:
+            lineas.append("<p>Sin vencimientos pendientes esta semana.</p>")
+
+        cuerpo = "\n".join(lineas)
+        asunto = f"PyME OS — Resumen semanal ({hoy.strftime('%d/%m/%Y')})"
+
+        try:
+            _enviar_email(dueno.email, asunto, cuerpo)
+
+            # Registrar en email_log
+            from models.email_log import EmailLog
+            db.add(EmailLog(
+                recipient_type="studio",
+                recipient_email=dueno.email,
+                email_type="resumen_semanal",
+                subject=asunto,
+                status="sent",
+            ))
+            db.commit()
+            logger.info("Job resumen semanal — email enviado a %s", dueno.email)
+        except Exception as e:
+            logger.error("Job resumen semanal — error enviando email: %s", e)
+
+    except Exception as e:
+        logger.error("Job resumen semanal — error general: %s", e)
     finally:
         db.close()

@@ -133,7 +133,7 @@ def job_renovar_gmail_watch(db: Session) -> None:
     configs = db.query(GmailConfig).filter(GmailConfig.activo == True).all()
     ahora = datetime.now(timezone.utc)
     for cfg in configs:
-        if cfg.watch_expiry is None or (cfg.watch_expiry - ahora) < timedelta(days=1):
+        if cfg.watch_expiry is None or (cfg.watch_expiry - ahora) < timedelta(days=2):
             try:
                 configurar_watch(cfg, db)
             except Exception as exc:

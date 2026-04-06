@@ -1,13 +1,18 @@
 import calendar
+import logging
+import os
 from datetime import date
 
 from fastapi import HTTPException
 from sqlalchemy.orm import Session
 
+from database import SessionLocal
 from models.cliente import Cliente
 from models.informe_ejecutivo import InformeEjecutivo
 from models.vencimiento import EstadoVencimiento, Vencimiento
-from services import alert_service, profitability_service, risk_service, workload_service
+from services import alert_service, profitability_service, risk_service
+
+logger = logging.getLogger("pymeos")
 
 
 def _parse_periodo(periodo: str) -> tuple[date, date]:
@@ -34,12 +39,53 @@ def _informe_a_dict(informe: InformeEjecutivo) -> dict:
         "alertas_criticas": informe.alertas_criticas,
         "clientes_riesgo_rojo": informe.clientes_riesgo_rojo,
         "resumen_vencimientos": informe.resumen_vencimientos,
-        "resumen_workload": informe.resumen_workload,
         "resumen_rentabilidad": informe.resumen_rentabilidad,
         "resumen_alertas": informe.resumen_alertas,
         "resumen_riesgo": informe.resumen_riesgo,
+        "ai_interpretation": informe.ai_interpretation,
         "created_at": informe.created_at.isoformat() if informe.created_at else None,
     }
+
+
+async def generar_interpretacion_background(informe_id: int) -> None:
+    """
+    Llama a Claude API para generar la interpretación del informe.
+    Diseñado para correr como BackgroundTask — nunca bloquea el endpoint.
+    """
+    try:
+        import anthropic
+        from prompts.reporte_ejecutivo import SYSTEM_PROMPT, USER_PROMPT_TEMPLATE
+
+        with SessionLocal() as db:
+            informe = db.query(InformeEjecutivo).filter(InformeEjecutivo.id == informe_id).first()
+            if not informe:
+                return
+
+            user_msg = USER_PROMPT_TEMPLATE.format(
+                periodo=informe.periodo,
+                total_clientes_activos=informe.total_clientes_activos,
+                alertas_criticas=informe.alertas_criticas,
+                clientes_riesgo_rojo=informe.clientes_riesgo_rojo,
+                resumen_vencimientos=informe.resumen_vencimientos,
+                resumen_rentabilidad=informe.resumen_rentabilidad,
+                resumen_alertas=informe.resumen_alertas,
+                resumen_riesgo=informe.resumen_riesgo,
+            )
+
+            client = anthropic.AsyncAnthropic(api_key=os.environ.get("ANTHROPIC_API_KEY", ""))
+            response = await client.messages.create(
+                model="claude-sonnet-4-6",
+                max_tokens=500,
+                system=SYSTEM_PROMPT,
+                messages=[{"role": "user", "content": user_msg}],
+            )
+            interpretation = response.content[0].text.strip()
+
+            informe.ai_interpretation = interpretation
+            db.commit()
+            logger.info("ai_interpretation generada para informe id=%d", informe_id)
+    except Exception as e:
+        logger.error("Error generando ai_interpretation para informe id=%d: %s", informe_id, e)
 
 
 def generar_informe(db: Session, periodo: str, generado_por_id: int | None = None) -> dict:
@@ -62,9 +108,6 @@ def generar_informe(db: Session, periodo: str, generado_por_id: int | None = Non
         "total": len(vencimientos),
         "por_estado": conteo_estados,
     }
-
-    # --- Workload ---
-    resumen_workload = workload_service.obtener_resumen_carga(db)
 
     # --- Rentabilidad del período ---
     snapshots = profitability_service.listar_rentabilidad(db, periodo)
@@ -108,25 +151,25 @@ def generar_informe(db: Session, periodo: str, generado_por_id: int | None = Non
     if informe:
         informe.generado_por_id = generado_por_id
         informe.resumen_vencimientos = resumen_vencimientos
-        informe.resumen_workload = resumen_workload
         informe.resumen_rentabilidad = resumen_rentabilidad
         informe.resumen_alertas = resumen_alertas
         informe.resumen_riesgo = resumen_riesgo
         informe.total_clientes_activos = total_clientes_activos
         informe.alertas_criticas = alertas_criticas
         informe.clientes_riesgo_rojo = clientes_riesgo_rojo
+        informe.ai_interpretation = None  # se regenera en background
     else:
         informe = InformeEjecutivo(
             periodo=periodo,
             generado_por_id=generado_por_id,
             resumen_vencimientos=resumen_vencimientos,
-            resumen_workload=resumen_workload,
             resumen_rentabilidad=resumen_rentabilidad,
             resumen_alertas=resumen_alertas,
             resumen_riesgo=resumen_riesgo,
             total_clientes_activos=total_clientes_activos,
             alertas_criticas=alertas_criticas,
             clientes_riesgo_rojo=clientes_riesgo_rojo,
+            ai_interpretation=None,
         )
         db.add(informe)
 

@@ -44,6 +44,11 @@ def _calcular_estado_alerta(
 
 
 def crear_cliente(db: Session, data: ClienteCreate) -> Cliente:
+    from validaciones import validar_cuit
+
+    if not validar_cuit(data.cuit_cuil):
+        raise HTTPException(status_code=422, detail="CUIT/CUIL inválido — el dígito verificador no es correcto")
+
     existente = db.query(Cliente).filter(Cliente.cuit_cuil == data.cuit_cuil).first()
     if existente:
         raise HTTPException(status_code=409, detail="Ya existe un cliente con ese CUIT/CUIL")

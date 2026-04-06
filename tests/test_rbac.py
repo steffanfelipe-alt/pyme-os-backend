@@ -112,10 +112,10 @@ def test_contador_no_accede_profitability(client, token_contador):
     assert resp.status_code == 403
 
 
-def test_contador_no_accede_workload(client, token_contador):
-    """GET /api/workload con rol contador devuelve 403."""
+def test_workload_eliminado(client, token_contador):
+    """El módulo workload fue eliminado en v2 — el endpoint retorna 404."""
     resp = client.get("/api/workload/team", headers=_headers(token_contador))
-    assert resp.status_code == 403
+    assert resp.status_code == 404
 
 
 # ---------------------------------------------------------------------------

@@ -27,4 +27,5 @@ Thumbs.db
 
 # Test databases
 *.db
+*.db-journal
 uploads/

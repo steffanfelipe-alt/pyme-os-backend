@@ -20,6 +20,8 @@ class RentabilidadMensual(Base):
     rentabilidad_hora: Mapped[float | None] = mapped_column(Float, nullable=True)
     tareas_completadas: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     tareas_demoradas: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    costo_estimado: Mapped[float | None] = mapped_column(Float, nullable=True)
+    profit_margin_percentage: Mapped[float | None] = mapped_column(Float, nullable=True)
     created_at: Mapped[datetime] = mapped_column(
         DateTime, server_default=func.now(), nullable=False
     )

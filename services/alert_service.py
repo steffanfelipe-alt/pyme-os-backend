@@ -1,3 +1,4 @@
+import logging
 from datetime import date, datetime
 
 from fastapi import HTTPException
@@ -6,6 +7,8 @@ from sqlalchemy.orm import Session
 from models.alerta import AlertaVencimiento, DocumentoRequerido
 from models.documento import Documento
 from models.vencimiento import EstadoVencimiento, Vencimiento
+
+logger = logging.getLogger("pymeos")
 
 
 # Umbral máximo de días para generar alertas
@@ -135,6 +138,11 @@ def generar_alertas(db: Session) -> list[dict]:
             db.add(alerta)
 
         db.flush()
+
+        # Notificar via Telegram si hay canal activo y aún no se envió
+        if nivel == "critica" and not alerta.sent_via_telegram:
+            _intentar_notificar_telegram(db, alerta, venc)
+
         generadas.append({
             "vencimiento_id": venc.id,
             "cliente_id": venc.cliente_id,
@@ -146,6 +154,35 @@ def generar_alertas(db: Session) -> list[dict]:
 
     db.commit()
     return generadas
+
+
+def _intentar_notificar_telegram(db: Session, alerta: "AlertaVencimiento", venc) -> None:
+    """Envía alerta crítica por Telegram si el estudio tiene el canal activo."""
+    try:
+        from models.cliente import Cliente
+        from models.studio_config import StudioConfig
+        from modules.asistente.notificador import enviar_alerta_vencimiento_telegram
+
+        config = db.query(StudioConfig).first()
+        if not config or not config.telegram_active or not config.telegram_chat_id:
+            return
+
+        cliente = db.query(Cliente).filter(Cliente.id == venc.cliente_id).first()
+        cliente_nombre = cliente.razon_social if cliente else f"Cliente #{venc.cliente_id}"
+        fecha_str = venc.fecha_vencimiento.strftime("%d/%m/%Y")
+
+        enviar_alerta_vencimiento_telegram(
+            config.telegram_chat_id,
+            cliente_nombre,
+            venc.tipo.value,
+            fecha_str,
+            alerta.dias_restantes,
+            alerta.id,
+        )
+        alerta.sent_via_telegram = True
+        alerta.telegram_sent_at = datetime.utcnow()
+    except Exception as e:
+        logger.warning("No se pudo enviar alerta Telegram: %s", e)
 
 
 def listar_alertas(db: Session, nivel: str | None = None) -> list[dict]:
