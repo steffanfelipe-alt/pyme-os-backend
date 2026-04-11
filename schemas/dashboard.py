@@ -124,3 +124,4 @@ class DashboardResponse(BaseModel):
     bloque_salud: BloqueSalud
     generado_en: datetime
     filtrado_por_contador: Optional[int]
+    error: Optional[str] = None

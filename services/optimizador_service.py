@@ -8,6 +8,9 @@ import logging
 
 import anthropic
 from fastapi import HTTPException
+from sqlalchemy.orm import Session
+
+from services.ai_client import get_anthropic_client
 
 logger = logging.getLogger("pymeos")
 
@@ -24,7 +27,7 @@ def _limpiar_json(raw: str) -> dict:
     return json.loads(raw)
 
 
-async def optimizar_descripcion(descripcion: str) -> dict:
+async def optimizar_descripcion(descripcion: str, db: Session | None = None) -> dict:
     """
     Recibe una descripción libre de un proceso y retorna un template estructurado
     con nombre, tipo sugerido, descripcion mejorada y pasos sugeridos.
@@ -56,7 +59,7 @@ es_automatizable: true si el paso puede hacerse con software sin intervención h
 Descripción del proceso:
 {descripcion}"""
 
-    client = anthropic.AsyncAnthropic()
+    client = get_anthropic_client(db) if db else anthropic.AsyncAnthropic()
     mensaje = await client.messages.create(
         model=_MODELO,
         max_tokens=1024,
@@ -78,7 +81,7 @@ Criterios de recomendación en orden de prioridad:
 Respondé SIEMPRE con un objeto JSON válido y nada más. Sin texto adicional, sin bloques markdown."""
 
 
-async def analizar_pasos_automatizabilidad(pasos: list[dict]) -> dict:
+async def analizar_pasos_automatizabilidad(pasos: list[dict], db: Session | None = None) -> dict:
     """
     Clasifica cada paso del proceso por nivel de automatizabilidad.
     Retorna análisis enriquecido: resumen, pasos_criticos, sugerencias, riesgo_fiscal, automatizable por paso.
@@ -122,7 +125,7 @@ ahorro_total_horas_mes: horas mensuales estimadas si se automatizan todos los pa
 Pasos del proceso:
 {pasos_texto}"""
 
-    client = anthropic.AsyncAnthropic()
+    client = get_anthropic_client(db) if db else anthropic.AsyncAnthropic()
     mensaje = await client.messages.create(
         model=_MODELO,
         max_tokens=1500,
@@ -132,13 +135,13 @@ Pasos del proceso:
     return _limpiar_json(mensaje.content[0].text)
 
 
-async def generar_flujo_n8n(pasos: list[dict], analisis: dict) -> dict:
+async def generar_flujo_n8n(pasos: list[dict], analisis: dict, db: Session | None = None) -> dict:
     """
     Genera un workflow JSON compatible con n8n basado en los pasos y el análisis.
     Valida que el JSON tenga la estructura mínima requerida por n8n.
     """
     pasos_texto = "\n".join(
-        f"{p.get('orden', i+1)}. {p.get('titulo', '')} — automatizabilidad: {p.get('automatizabilidad', 'desconocida')}"
+        f"{p.get('orden', i+1)}. {p.get('titulo', '')} — automatizable: {'si' if p.get('es_automatizable') else 'no'}"
         for i, p in enumerate(pasos)
     )
 
@@ -162,7 +165,7 @@ Pasos a automatizar:
 Análisis de automatizabilidad:
 {json.dumps(analisis, ensure_ascii=False, indent=2)[:2000]}"""
 
-    client = anthropic.AsyncAnthropic()
+    client = get_anthropic_client(db) if db else anthropic.AsyncAnthropic()
     mensaje = await client.messages.create(
         model=_MODELO,
         max_tokens=2048,

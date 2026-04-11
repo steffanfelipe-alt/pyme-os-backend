@@ -26,6 +26,7 @@ class VencimientoUpdate(BaseModel):
 class VencimientoResponse(BaseModel):
     id: int
     cliente_id: int
+    cliente_nombre: Optional[str] = None
     tipo: TipoVencimiento
     descripcion: str
     fecha_vencimiento: date

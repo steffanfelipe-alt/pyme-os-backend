@@ -20,6 +20,7 @@ from schemas.proceso import (
     ProcesoTemplateUpdate,
 )
 from services import proceso_service
+from services.proceso_service import iniciar_instancia, completar_instancia, cancelar_instancia
 from services.sop_service import generar_sop_pdf
 
 router = APIRouter(prefix="/api/procesos", tags=["Procesos"])
@@ -199,6 +200,45 @@ def actualizar_instancia(
     return ProcesoInstanciaResponse.model_validate(instancia)
 
 
+@router.patch("/instancias/{instancia_id}/iniciar", response_model=ProcesoInstanciaResponse)
+def iniciar_proceso_instancia(
+    instancia_id: int,
+    db: Session = Depends(get_db),
+    current_user: dict = Depends(require_rol("dueno", "contador", "administrativo")),
+):
+    """Inicia una instancia de proceso: pendiente → en_progreso, registra fecha_inicio."""
+    instancia = iniciar_instancia(db, instancia_id, current_user.get("empleado_id"))
+    pasos = proceso_service.obtener_pasos_instancia(db, instancia_id)
+    instancia.pasos = pasos
+    return ProcesoInstanciaResponse.model_validate(instancia)
+
+
+@router.patch("/instancias/{instancia_id}/completar", response_model=ProcesoInstanciaResponse)
+def completar_proceso_instancia(
+    instancia_id: int,
+    db: Session = Depends(get_db),
+    current_user: dict = Depends(require_rol("dueno", "contador", "administrativo")),
+):
+    """Completa una instancia: → completado, registra fecha_fin y tiempo_real_minutos."""
+    instancia = completar_instancia(db, instancia_id)
+    pasos = proceso_service.obtener_pasos_instancia(db, instancia_id)
+    instancia.pasos = pasos
+    return ProcesoInstanciaResponse.model_validate(instancia)
+
+
+@router.patch("/instancias/{instancia_id}/cancelar", response_model=ProcesoInstanciaResponse)
+def cancelar_proceso_instancia(
+    instancia_id: int,
+    db: Session = Depends(get_db),
+    current_user: dict = Depends(require_rol("dueno", "contador", "administrativo")),
+):
+    """Cancela una instancia en progreso o pendiente."""
+    instancia = cancelar_instancia(db, instancia_id)
+    pasos = proceso_service.obtener_pasos_instancia(db, instancia_id)
+    instancia.pasos = pasos
+    return ProcesoInstanciaResponse.model_validate(instancia)
+
+
 @router.put("/pasos-instancia/{paso_id}", response_model=ProcesoPasoInstanciaResponse)
 def avanzar_paso_instancia(
     paso_id: int,
@@ -226,6 +266,7 @@ def generar_sop(
 @router.post("/optimizar/desde-descripcion")
 async def optimizar_desde_descripcion(
     payload: dict,
+    db: Session = Depends(get_db),
     current_user: dict = Depends(require_rol("dueno", "contador")),
 ):
     descripcion = payload.get("descripcion", "").strip()
@@ -233,7 +274,78 @@ async def optimizar_desde_descripcion(
         from fastapi import HTTPException
         raise HTTPException(status_code=422, detail="El campo 'descripcion' es requerido")
     from services.optimizador_service import optimizar_descripcion
-    return await optimizar_descripcion(descripcion)
+    return await optimizar_descripcion(descripcion, db=db)
+
+
+@router.post("/templates/{template_id}/previsualizar-optimizacion")
+async def previsualizar_optimizacion(
+    template_id: int,
+    db: Session = Depends(get_db),
+    current_user: dict = Depends(require_rol("dueno", "contador")),
+):
+    """
+    Genera una versión optimizada del template usando IA SIN guardarla.
+    Útil para comparar original vs IA antes de decidir si aplicar.
+    """
+    from services.optimizador_service import optimizar_descripcion
+    template = proceso_service.obtener_template(db, template_id)
+    pasos = proceso_service.obtener_pasos_template(db, template_id)
+
+    # Construir descripción enriquecida con los pasos actuales
+    pasos_txt = "\n".join(
+        f"{p.orden}. {p.titulo}: {p.descripcion or ''}" for p in pasos
+    )
+    descripcion_completa = (
+        f"{template.descripcion or template.nombre}\n\nPasos actuales:\n{pasos_txt}"
+    )
+
+    optimizado = await optimizar_descripcion(descripcion_completa, db=db)
+    return {
+        "original": {
+            "nombre": template.nombre,
+            "descripcion": template.descripcion,
+            "pasos": [
+                {"orden": p.orden, "titulo": p.titulo, "descripcion": p.descripcion,
+                 "tiempo_estimado_minutos": p.tiempo_estimado_minutos, "es_automatizable": p.es_automatizable}
+                for p in pasos
+            ],
+        },
+        "optimizado": optimizado,
+    }
+
+
+@router.post("/templates/{template_id}/aplicar-optimizacion")
+def aplicar_optimizacion_template(
+    template_id: int,
+    payload: dict,
+    db: Session = Depends(get_db),
+    current_user: dict = Depends(require_rol("dueno", "contador")),
+):
+    """
+    Aplica la versión optimizada al template, guardando la original como snapshot.
+    Body: { "descripcion": str|null, "pasos": [...] }
+    """
+    descripcion_nueva = payload.get("descripcion")
+    pasos_nuevos = payload.get("pasos", [])
+    if not pasos_nuevos:
+        from fastapi import HTTPException
+        raise HTTPException(status_code=422, detail="Se requiere al menos un paso en 'pasos'.")
+
+    template = proceso_service.aplicar_optimizacion(db, template_id, descripcion_nueva, pasos_nuevos)
+    pasos = proceso_service.obtener_pasos_template(db, template_id)
+    return ProcesoTemplateResponse.from_orm_with_pasos(template, pasos)
+
+
+@router.post("/templates/{template_id}/restaurar-version-anterior")
+def restaurar_version_anterior(
+    template_id: int,
+    db: Session = Depends(get_db),
+    current_user: dict = Depends(require_rol("dueno", "contador")),
+):
+    """Restaura el template a la versión previa al último apply de optimización."""
+    template = proceso_service.restaurar_version_anterior(db, template_id)
+    pasos = proceso_service.obtener_pasos_template(db, template_id)
+    return ProcesoTemplateResponse.from_orm_with_pasos(template, pasos)
 
 
 @router.post("/templates/{template_id}/analizar-automatizabilidad")
@@ -249,7 +361,8 @@ async def analizar_automatizabilidad(
             "orden": p.orden,
             "titulo": p.titulo,
             "descripcion": p.descripcion or "",
+            "es_automatizable": p.es_automatizable,
         }
         for p in pasos
     ]
-    return await analizar_pasos_automatizabilidad(pasos_dict)
+    return await analizar_pasos_automatizabilidad(pasos_dict, db=db)

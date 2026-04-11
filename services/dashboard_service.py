@@ -53,9 +53,39 @@ def _color_carga(pct: float) -> str:
     return "rojo"
 
 
-def obtener_dashboard(db: Session, contador_id: Optional[int] = None) -> DashboardResponse:
+def obtener_dashboard(db: Session, contador_id: Optional[int] = None) -> DashboardResponse:  # noqa: C901
     hoy = date.today()
     ahora = datetime.now()
+    try:
+        return _calcular_dashboard(db, contador_id, hoy, ahora)
+    except Exception as exc:
+        logger.error("Error generando dashboard: %s", exc, exc_info=True)
+        return DashboardResponse(
+            bloque_riesgo=BloqueRiesgo(
+                vencimientos_sin_doc=[],
+                clientes_sin_actividad=[],
+                tareas_retrasadas=[],
+                resumen_alertas=ResumenAlertas(criticas=0, advertencias=0, informativas=0),
+            ),
+            bloque_carga=BloqueCarga(
+                carga_por_contador=[],
+                completadas_a_tiempo=CompletadasATiempo(total_pct=0.0, mes_anterior_pct=None),
+                tiempo_promedio_por_tipo=[],
+                indice_concentracion=IndiceConcentracion(alerta=False, top_contador_pct=0.0, mensaje=None),
+            ),
+            bloque_salud=BloqueSalud(
+                tiempo_real_por_cliente=[],
+                documentacion_por_cliente=[],
+                evolucion_clientes=[],
+                rentabilidad_por_cliente=[],
+            ),
+            generado_en=ahora,
+            filtrado_por_contador=contador_id,
+            error="Error al calcular métricas. Verificá los datos de la base.",
+        )
+
+
+def _calcular_dashboard(db: Session, contador_id: Optional[int], hoy: date, ahora: datetime) -> DashboardResponse:
 
     # ── filtro base de clientes ──────────────────────────────────────────
     filtro_clientes = [Cliente.activo == True]
@@ -150,10 +180,9 @@ def obtener_dashboard(db: Session, contador_id: Optional[int] = None) -> Dashboa
     # 3. Tareas retrasadas
     tareas_ret_rows = (
         db.query(Tarea, Cliente, Empleado)
-        .join(Cliente, Tarea.cliente_id == Cliente.id)
+        .outerjoin(Cliente, Tarea.cliente_id == Cliente.id)
         .outerjoin(Empleado, Tarea.empleado_id == Empleado.id)
         .filter(
-            Tarea.cliente_id.in_(clientes_ids_sq),
             Tarea.estado.in_([EstadoTarea.pendiente, EstadoTarea.en_progreso]),
             Tarea.fecha_limite < hoy,
             Tarea.activo == True,
@@ -166,7 +195,7 @@ def obtener_dashboard(db: Session, contador_id: Optional[int] = None) -> Dashboa
         TareaRetrasada(
             tarea_id=t.id,
             titulo=t.titulo,
-            cliente_nombre=c.nombre,
+            cliente_nombre=c.nombre if c else "Sin cliente",
             contador_nombre=e.nombre if e else None,
             dias_retraso=(hoy - t.fecha_limite).days,
         )
@@ -398,11 +427,13 @@ def obtener_dashboard(db: Session, contador_id: Optional[int] = None) -> Dashboa
                        else mes_ref_inicio.replace(year=mes_ref_inicio.year + 1, month=1, day=1))
 
         altas = db.query(func.count(Cliente.id)).filter(
-            func.date_trunc('month', Cliente.created_at) == func.date_trunc('month', mes_ref_inicio)
+            Cliente.created_at >= mes_ref_inicio,
+            Cliente.created_at < mes_ref_fin,
         ).scalar() or 0
         bajas = db.query(func.count(Cliente.id)).filter(
             Cliente.fecha_baja.isnot(None),
-            func.date_trunc('month', Cliente.fecha_baja) == func.date_trunc('month', mes_ref_inicio)
+            Cliente.fecha_baja >= mes_ref_inicio,
+            Cliente.fecha_baja < mes_ref_fin,
         ).scalar() or 0
         activos = db.query(func.count(Cliente.id)).filter(
             Cliente.activo == True,

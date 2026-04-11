@@ -13,9 +13,10 @@ from services import profitability_service, risk_service
 
 
 def crear_tarea(db: Session, data: TareaCreate) -> Tarea:
-    cliente = db.query(Cliente).filter(Cliente.id == data.cliente_id, Cliente.activo == True).first()
-    if not cliente:
-        raise HTTPException(status_code=404, detail="Cliente no encontrado")
+    if data.cliente_id is not None:
+        cliente = db.query(Cliente).filter(Cliente.id == data.cliente_id, Cliente.activo == True).first()
+        if not cliente:
+            raise HTTPException(status_code=404, detail="Cliente no encontrado")
 
     if data.empleado_id is not None:
         empleado = db.query(Empleado).filter(

@@ -7,6 +7,9 @@ import logging
 from typing import Any
 
 import anthropic
+from sqlalchemy.orm import Session
+
+from services.ai_client import get_anthropic_client
 
 logger = logging.getLogger("pymeos")
 
@@ -46,6 +49,7 @@ async def clasificar_email(
     asunto: str,
     cuerpo: str,
     clientes_registrados: list[dict],
+    db: Session | None = None,
 ) -> dict[str, Any]:
     """
     Llama a Claude API para clasificar un email entrante.
@@ -70,7 +74,7 @@ async def clasificar_email(
         cuerpo=cuerpo[:4000] if cuerpo else "(sin cuerpo)",
     )
 
-    client = anthropic.AsyncAnthropic()
+    client = get_anthropic_client(db) if db else anthropic.AsyncAnthropic()
     mensaje = await client.messages.create(
         model="claude-haiku-4-5-20251001",
         max_tokens=512,

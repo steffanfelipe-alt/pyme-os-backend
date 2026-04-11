@@ -8,13 +8,15 @@ import uuid
 from datetime import date
 from io import BytesIO
 from pathlib import Path
-from typing import Optional
+from typing import Any, Optional
 
 import anthropic
 from fastapi import HTTPException, UploadFile
 from PIL import Image
 from pypdf import PdfReader
 from sqlalchemy.orm import Session
+
+from services.ai_client import get_anthropic_client
 
 from models.alerta import AlertaVencimiento
 from models.cliente import Cliente
@@ -105,10 +107,10 @@ def _comprimir_imagen(contenido: bytes) -> bytes:
     return buf.getvalue()
 
 
-async def _clasificar_con_ia(extension: str, contenido: bytes) -> dict:
+async def _clasificar_con_ia(extension: str, contenido: bytes, db: Session | None = None) -> dict:
     """Llama a Claude y devuelve el dict clasificado. Nunca lanza excepción."""
     try:
-        client = anthropic.AsyncAnthropic()
+        client = get_anthropic_client(db) if db else anthropic.AsyncAnthropic()
 
         if extension == ".pdf":
             texto = _extraer_texto_pdf(contenido)
@@ -230,7 +232,7 @@ async def subir_documento(
 
     # Clasificar con IA
     try:
-        resultado = await _clasificar_con_ia(ext, contenido)
+        resultado = await _clasificar_con_ia(ext, contenido, db=db)
         confianza = float(resultado.get("confianza") or 0.0)
         tipo_str = resultado.get("tipo", "otro")
         tipo = TipoDocumento(tipo_str) if tipo_str in TipoDocumento._value2member_map_ else TipoDocumento.otro
@@ -327,6 +329,124 @@ def eliminar_documento(db: Session, doc_id: int) -> None:
         logger.info("Archivo físico eliminado: %s", ruta)
     db.delete(doc)
     db.commit()
+
+
+async def procesar_adjunto_email(
+    db: Session,
+    cliente_id: int,
+    gmail_message_id: str,
+    adjunto: dict,
+    service: Any,
+) -> Optional[Documento]:
+    """
+    Descarga un adjunto de Gmail, valida extensión, clasifica con IA y persiste
+    solo si supera el umbral de confianza. Retorna el Documento o None.
+    """
+    filename = adjunto.get("filename", "documento")
+    attachment_id = adjunto.get("attachment_id", "")
+
+    ext = Path(filename).suffix.lower()
+    if ext not in EXTENSIONES_VALIDAS:
+        logger.info("procesar_adjunto_email: extensión %s no soportada — omitido (%s)", ext, filename)
+        return None
+
+    # Descargar contenido desde Gmail API
+    try:
+        resp = (
+            service.users()
+            .messages()
+            .attachments()
+            .get(userId="me", messageId=gmail_message_id, id=attachment_id)
+            .execute()
+        )
+    except Exception as e:
+        logger.error("procesar_adjunto_email: error descargando %s (msg=%s) — %s", filename, gmail_message_id, e)
+        return None
+
+    data_b64 = resp.get("data", "")
+    if not data_b64:
+        return None
+
+    try:
+        contenido = base64.urlsafe_b64decode(data_b64 + "==")
+    except Exception as e:
+        logger.error("procesar_adjunto_email: error decodificando base64 %s — %s", filename, e)
+        return None
+
+    if len(contenido) > MAX_FILE_BYTES:
+        logger.warning("procesar_adjunto_email: adjunto demasiado grande (%d bytes) — descartado", len(contenido))
+        return None
+
+    # Clasificar ANTES de guardar (discard-first)
+    try:
+        resultado = await _clasificar_con_ia(ext, contenido, db=db)
+    except Exception as e:
+        logger.error("procesar_adjunto_email: error IA para %s — %s", filename, e)
+        return None
+
+    confianza = float(resultado.get("confianza") or 0.0)
+    tipo_str = resultado.get("tipo", "otro")
+
+    if tipo_str == "otro" or confianza < CONFIANZA_MIN_PROCESADO:
+        logger.info("procesar_adjunto_email: descartado — tipo=%s confianza=%.2f archivo=%s", tipo_str, confianza, filename)
+        return None
+
+    # Dedup por hash
+    file_hash = _calcular_hash(contenido)
+    doc_existente = db.query(Documento).filter(
+        Documento.cliente_id == cliente_id,
+        Documento.file_hash == file_hash,
+        Documento.activo == True,
+    ).first()
+    if doc_existente:
+        logger.info("procesar_adjunto_email: duplicado detectado — doc_id=%d", doc_existente.id)
+        return doc_existente
+
+    # Guardar en disco
+    directorio = _directorio_cliente(cliente_id)
+    nombre_archivo = f"{uuid.uuid4().hex}_{filename}"
+    ruta = directorio / nombre_archivo
+    ruta.write_bytes(contenido)
+
+    # Resolver vencimientos_relacionados
+    vencimientos_ia = resultado.get("vencimientos_relacionados")
+    if isinstance(vencimientos_ia, list) and vencimientos_ia:
+        tipos_validos = {t.value for t in TipoVencimiento}
+        vencimientos_relacionados = [v for v in vencimientos_ia if v in tipos_validos] or MAPEO_DOCUMENTO_VENCIMIENTO.get(tipo_str, [])
+    else:
+        vencimientos_relacionados = MAPEO_DOCUMENTO_VENCIMIENTO.get(tipo_str, [])
+
+    tipo = TipoDocumento(tipo_str) if tipo_str in TipoDocumento._value2member_map_ else TipoDocumento.otro
+
+    doc = Documento(
+        cliente_id=cliente_id,
+        nombre_original=filename,
+        ruta_archivo=str(ruta.as_posix()),
+        tipo_documento=tipo,
+        confianza=confianza,
+        resumen=resultado.get("resumen"),
+        metadatos={
+            "periodo": resultado.get("periodo"),
+            "cuit_detectado": resultado.get("cuit_detectado"),
+            "monto": resultado.get("monto"),
+            "vencimientos_relacionados": vencimientos_relacionados,
+            "origen": "email",
+            "gmail_message_id": gmail_message_id,
+        },
+        estado=EstadoDocumento.procesado,
+        file_hash=file_hash,
+    )
+    db.add(doc)
+    db.commit()
+    db.refresh(doc)
+
+    try:
+        risk_service.calcular_score_cliente(db, cliente_id)
+    except Exception as e:
+        logger.error("procesar_adjunto_email: error recalculando risk score — %s", e)
+
+    logger.info("Adjunto guardado como doc %d — cliente %d, tipo %s, confianza %.2f", doc.id, cliente_id, tipo_str, confianza)
+    return doc
 
 
 def obtener_checklist(

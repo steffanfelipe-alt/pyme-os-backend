@@ -7,12 +7,12 @@ from models.tarea import EstadoTarea, PrioridadTarea, TipoTarea
 
 
 class TareaCreate(BaseModel):
-    cliente_id: int
+    cliente_id: Optional[int] = None
     empleado_id: Optional[int] = None
     titulo: str
     descripcion: Optional[str] = None
-    tipo: TipoTarea
-    prioridad: PrioridadTarea = PrioridadTarea.media
+    tipo: TipoTarea = TipoTarea.otro
+    prioridad: PrioridadTarea = PrioridadTarea.normal
     fecha_limite: Optional[date] = None
     horas_estimadas: Optional[float] = None
     notas: Optional[str] = None
@@ -35,8 +35,10 @@ class TareaUpdate(BaseModel):
 
 class TareaResponse(BaseModel):
     id: int
-    cliente_id: int
+    cliente_id: Optional[int]
+    cliente_nombre: Optional[str] = None
     empleado_id: Optional[int]
+    empleado_nombre: Optional[str] = None
     titulo: str
     descripcion: Optional[str]
     tipo: TipoTarea

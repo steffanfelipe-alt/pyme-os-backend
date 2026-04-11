@@ -6,6 +6,7 @@ from apscheduler.schedulers.background import BackgroundScheduler
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
+from fastapi.staticfiles import StaticFiles
 from slowapi import _rate_limit_exceeded_handler
 from slowapi.errors import RateLimitExceeded
 from sqlalchemy import text
@@ -17,11 +18,14 @@ import models.studio  # noqa: F401
 import models.dashboard_conversation  # noqa: F401
 import models.assistant_conversation  # noqa: F401
 import models.email_log  # noqa: F401
+import models.facturacion  # noqa: F401
+import models.automatizacion_python  # noqa: F401
 
 from routers import (
-    agent_assistant, agent_dashboard, alerts, auth_router, automatizaciones, clientes,
-    conocimiento, dashboard, documentos, emails, empleados, plantillas, procesos,
-    profitability, reportes, reports, risk, sop_asistido, tareas, vencimientos, webhooks,
+    agent_assistant, agent_dashboard, alerts, auth_router, automatizaciones, automatizaciones_python,
+    clientes, configuracion, conocimiento, dashboard, documentos, emails, empleados, facturacion,
+    plantillas, procesos, profitability, reportes, reports, risk, sop_asistido, tareas,
+    vencimientos, webhooks,
 )
 from modules.asistente.router import router as asistente_router
 
@@ -83,6 +87,16 @@ app.include_router(agent_dashboard.router)
 app.include_router(agent_assistant.router)
 app.include_router(asistente_router)
 app.include_router(webhooks.router)
+app.include_router(facturacion.router)
+app.include_router(configuracion.router)
+app.include_router(automatizaciones_python.router)
+
+# --- Static files (SOPs, documentos, adjuntos) ---
+# Se crean los directorios si no existen para evitar error al montar
+import os as _os
+_os.makedirs("uploads", exist_ok=True)
+_os.makedirs("uploads/sops", exist_ok=True)
+app.mount("/uploads", StaticFiles(directory="uploads"), name="uploads")
 
 
 # --- Manejo global de errores ---
@@ -168,6 +182,22 @@ async def startup() -> None:
         minute=0,
         timezone="America/Argentina/Buenos_Aires",
         id="resumen_semanal_email",
+    )
+
+    from services.facturacion_service import job_emitir_honorarios_recurrentes
+    from database import SessionLocal as _SL2
+
+    def _job_honorarios():
+        with _SL2() as db:
+            job_emitir_honorarios_recurrentes(db)
+
+    scheduler.add_job(
+        _job_honorarios,
+        trigger="cron",
+        hour=8,
+        minute=0,
+        timezone="America/Argentina/Buenos_Aires",
+        id="emitir_honorarios_recurrentes",
     )
 
     scheduler.start()

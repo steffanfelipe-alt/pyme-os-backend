@@ -40,8 +40,8 @@ async def generar_automatizacion(
         for p in pasos
     ]
 
-    analisis = await analizar_pasos_automatizabilidad(pasos_dict)
-    flujo = await generar_flujo_n8n(pasos_dict, analisis)
+    analisis = await analizar_pasos_automatizabilidad(pasos_dict, db=db)
+    flujo = await generar_flujo_n8n(pasos_dict, analisis, db=db)
 
     # Calcular ahorro propio como suma de minutos automatizables / 60
     pasos_automatizables = [p for p in pasos if p.es_automatizable]

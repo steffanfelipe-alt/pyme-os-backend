@@ -68,6 +68,10 @@ class AsignarRequest(BaseModel):
     empleado_id: Optional[int]
 
 
+class CambiarCategoriaRequest(BaseModel):
+    categoria: str
+
+
 # ---------------------------------------------------------------------------
 # Bandeja de entrada
 # ---------------------------------------------------------------------------
@@ -76,6 +80,8 @@ class AsignarRequest(BaseModel):
 @router.get("", response_model=list[EmailResumen])
 def listar_emails(
     estado: Optional[str] = None,
+    categoria: Optional[str] = None,
+    pendiente_aprobacion: bool = False,
     skip: int = 0,
     limit: int = 50,
     db: Session = Depends(get_db),
@@ -96,8 +102,18 @@ def listar_emails(
         query = query.filter(EmailEntrante.urgencia.in_(["media", "baja"]))
     # dueno: sin filtro adicional
 
-    if estado:
+    # Filtro especial: emails con borrador IA pendiente de aprobación
+    if pendiente_aprobacion:
+        query = query.filter(
+            EmailEntrante.requiere_respuesta == True,
+            EmailEntrante.borrador_aprobado == False,
+            EmailEntrante.estado != "respondido",
+        )
+    elif estado:
         query = query.filter(EmailEntrante.estado == estado)
+
+    if categoria:
+        query = query.filter(EmailEntrante.categoria == categoria)
 
     return query.order_by(EmailEntrante.fecha_recibido.desc()).offset(skip).limit(limit).all()
 
@@ -138,6 +154,28 @@ def archivar_email(
 ):
     email = _get_email_o_404(email_id, db)
     email.estado = "archivado"
+    db.commit()
+    return {"ok": True}
+
+
+@router.patch("/{email_id}/categoria")
+def cambiar_categoria(
+    email_id: int,
+    body: CambiarCategoriaRequest,
+    db: Session = Depends(get_db),
+    current_user: dict = Depends(require_rol("dueno", "contador", "administrativo")),
+):
+    """Cambia manualmente la categoría de un email (routing manual)."""
+    CATEGORIAS_VALIDAS = {
+        "documento_recibido", "consulta_fiscal", "postulacion_laboral",
+        "solicitud_licencia", "consulta_interna", "proveedor",
+        "notificacion_afip", "urgente", "propuesta_comercial",
+        "reclamo", "spam", "otro",
+    }
+    if body.categoria not in CATEGORIAS_VALIDAS:
+        raise HTTPException(status_code=400, detail=f"Categoría inválida. Válidas: {', '.join(CATEGORIAS_VALIDAS)}")
+    email = _get_email_o_404(email_id, db)
+    email.categoria = body.categoria
     db.commit()
     return {"ok": True}
 
@@ -424,10 +462,38 @@ async def _procesar_nuevos_emails(config: GmailConfig, history_id: str, db: Sess
                 asunto=datos["asunto"] or "",
                 cuerpo=datos["cuerpo_texto"] or "",
                 clientes_registrados=lista_clientes,
+                db=db,
             )
             procesar_email_entrante(email, clasificacion, db)
         except Exception as exc:
             logger.error("Error clasificando email %s: %s", msg_id, exc)
+
+        # Procesar adjuntos si el email es de tipo documento_recibido y hay cliente vinculado
+        if (
+            email.cliente_id is not None
+            and email.categoria == "documento_recibido"
+            and datos.get("tiene_adjuntos")
+        ):
+            from services.documento_service import procesar_adjunto_email
+            for adjunto in datos.get("adjuntos_metadata", []):
+                try:
+                    doc = await procesar_adjunto_email(
+                        db=db,
+                        cliente_id=email.cliente_id,
+                        gmail_message_id=msg_id,
+                        adjunto=adjunto,
+                        service=service,
+                    )
+                    if doc:
+                        logger.info(
+                            "Adjunto clasificado — doc_id=%d email=%s cliente=%d",
+                            doc.id, msg_id, email.cliente_id,
+                        )
+                except Exception as exc:
+                    logger.error(
+                        "Error procesando adjunto %s del email %s: %s",
+                        adjunto.get("filename"), msg_id, exc,
+                    )
 
     config.watch_history_id = history_id
     db.commit()

@@ -184,7 +184,28 @@ def descargar_email(gmail_message_id: str, config: GmailConfig) -> dict[str, Any
         "cuerpo_html": cuerpo_html,
         "tiene_adjuntos": tiene_adjuntos,
         "fecha_recibido": _parsear_fecha(fecha_str),
+        "adjuntos_metadata": _extraer_adjuntos_metadata(payload),
     }
+
+
+def _extraer_adjuntos_metadata(payload: dict) -> list[dict]:
+    """
+    Recorre el árbol MIME ya descargado y extrae metadata de adjuntos reales.
+    No realiza llamadas adicionales a la API.
+    Retorna lista de dicts: {filename, mime_type, attachment_id}
+    """
+    adjuntos = []
+    for parte in _listar_partes(payload):
+        filename = parte.get("filename", "")
+        body = parte.get("body", {})
+        attachment_id = body.get("attachmentId")
+        if filename and attachment_id:
+            adjuntos.append({
+                "filename": filename,
+                "mime_type": parte.get("mimeType", ""),
+                "attachment_id": attachment_id,
+            })
+    return adjuntos
 
 
 def _listar_partes(payload: dict) -> list[dict]:

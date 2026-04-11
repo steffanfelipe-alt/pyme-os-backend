@@ -11,6 +11,8 @@ import anthropic
 from fastapi import HTTPException
 from sqlalchemy.orm import Session
 
+from services.ai_client import get_anthropic_client
+
 from models.proceso import Automatizacion, EstadoRevisionAutomatizacion, ProcesoTemplate
 from models.sop_documento import (
     AreaSop, EstadoSop,
@@ -243,7 +245,7 @@ async def generar_sop_desde_descripcion(
         f'\n\nDescripción del proceso:\n{descripcion}'
     )
 
-    client = anthropic.AsyncAnthropic()
+    client = get_anthropic_client(db)
     mensaje = await client.messages.create(
         model=_MODELO,
         max_tokens=1024,

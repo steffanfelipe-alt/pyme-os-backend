@@ -82,6 +82,93 @@ def eliminar_template(db: Session, template_id: int) -> None:
     db.commit()
 
 
+def aplicar_optimizacion(
+    db: Session,
+    template_id: int,
+    descripcion_nueva: str | None,
+    pasos_nuevos: list[dict],
+) -> ProcesoTemplate:
+    """
+    Guarda el template actual como snapshot en version_anterior_json,
+    luego reemplaza descripción y pasos con la versión optimizada por IA.
+    """
+    template = obtener_template(db, template_id)
+    pasos_actuales = obtener_pasos_template(db, template_id)
+
+    # Snapshot de la versión anterior
+    template.version_anterior_json = {
+        "nombre": template.nombre,
+        "descripcion": template.descripcion,
+        "pasos": [
+            {
+                "orden": p.orden,
+                "titulo": p.titulo,
+                "descripcion": p.descripcion,
+                "tiempo_estimado_minutos": p.tiempo_estimado_minutos,
+                "es_automatizable": p.es_automatizable,
+            }
+            for p in pasos_actuales
+        ],
+    }
+
+    # Aplicar nueva descripción
+    if descripcion_nueva:
+        template.descripcion = descripcion_nueva
+
+    # Eliminar pasos actuales y reemplazar con los nuevos
+    for paso in pasos_actuales:
+        db.delete(paso)
+    db.flush()
+
+    for paso_data in pasos_nuevos:
+        nuevo = ProcesoPasoTemplate(
+            template_id=template_id,
+            orden=paso_data.get("orden", 0),
+            titulo=paso_data.get("titulo", ""),
+            descripcion=paso_data.get("descripcion"),
+            tiempo_estimado_minutos=paso_data.get("tiempo_estimado_minutos"),
+            es_automatizable=paso_data.get("es_automatizable", False),
+        )
+        db.add(nuevo)
+
+    db.commit()
+    db.refresh(template)
+    return template
+
+
+def restaurar_version_anterior(db: Session, template_id: int) -> ProcesoTemplate:
+    """Restaura el template desde el snapshot guardado en version_anterior_json."""
+    template = obtener_template(db, template_id)
+    if not template.version_anterior_json:
+        raise HTTPException(status_code=404, detail="No hay versión anterior guardada para este template.")
+
+    snapshot = template.version_anterior_json
+    pasos_actuales = obtener_pasos_template(db, template_id)
+
+    if snapshot.get("descripcion"):
+        template.descripcion = snapshot["descripcion"]
+
+    for paso in pasos_actuales:
+        db.delete(paso)
+    db.flush()
+
+    for paso_data in snapshot.get("pasos", []):
+        nuevo = ProcesoPasoTemplate(
+            template_id=template_id,
+            orden=paso_data.get("orden", 0),
+            titulo=paso_data.get("titulo", ""),
+            descripcion=paso_data.get("descripcion"),
+            tiempo_estimado_minutos=paso_data.get("tiempo_estimado_minutos"),
+            es_automatizable=paso_data.get("es_automatizable", False),
+        )
+        db.add(nuevo)
+
+    template.version_anterior_json = None
+    db.commit()
+    db.refresh(template)
+    return template
+
+
 def obtener_pasos_template(db: Session, template_id: int) -> list[ProcesoPasoTemplate]:
     return (
         db.query(ProcesoPasoTemplate)
@@ -242,6 +329,48 @@ def actualizar_instancia(db: Session, instancia_id: int, data: ProcesoInstanciaU
             instancia.fecha_inicio = datetime.utcnow()
         if data.estado == EstadoInstancia.completado and instancia.fecha_fin is None:
             instancia.fecha_fin = datetime.utcnow()
+    db.commit()
+    db.refresh(instancia)
+    return instancia
+
+
+def iniciar_instancia(db: Session, instancia_id: int, empleado_id: Optional[int] = None) -> ProcesoInstancia:
+    """Transiciona la instancia de pendiente → en_progreso y registra fecha_inicio."""
+    instancia = obtener_instancia(db, instancia_id)
+    if instancia.estado == EstadoInstancia.completado:
+        raise HTTPException(status_code=400, detail="El proceso ya fue completado.")
+    if instancia.estado == EstadoInstancia.cancelado:
+        raise HTTPException(status_code=400, detail="El proceso fue cancelado.")
+    instancia.estado = EstadoInstancia.en_progreso
+    if instancia.fecha_inicio is None:
+        instancia.fecha_inicio = datetime.utcnow()
+    db.commit()
+    db.refresh(instancia)
+    return instancia
+
+
+def completar_instancia(db: Session, instancia_id: int) -> ProcesoInstancia:
+    """Transiciona la instancia → completado y registra fecha_fin y tiempo_real_minutos."""
+    instancia = obtener_instancia(db, instancia_id)
+    if instancia.estado == EstadoInstancia.cancelado:
+        raise HTTPException(status_code=400, detail="No se puede completar un proceso cancelado.")
+    ahora = datetime.utcnow()
+    instancia.estado = EstadoInstancia.completado
+    instancia.fecha_fin = ahora
+    if instancia.fecha_inicio:
+        instancia.tiempo_real_minutos = (ahora - instancia.fecha_inicio).total_seconds() / 60
+    db.commit()
+    db.refresh(instancia)
+    return instancia
+
+
+def cancelar_instancia(db: Session, instancia_id: int) -> ProcesoInstancia:
+    """Cancela una instancia en cualquier estado no-terminal."""
+    instancia = obtener_instancia(db, instancia_id)
+    if instancia.estado in (EstadoInstancia.completado, EstadoInstancia.cancelado):
+        raise HTTPException(status_code=400, detail=f"La instancia ya está en estado {instancia.estado.value}.")
+    instancia.estado = EstadoInstancia.cancelado
+    instancia.fecha_fin = datetime.utcnow()
     db.commit()
     db.refresh(instancia)
     return instancia

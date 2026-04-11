@@ -59,3 +59,16 @@ class AsistenteConfirmacionPendiente(Base):
     # null = pendiente, True = confirmado, False = cancelado
     confirmado: Mapped[bool | None] = mapped_column(Boolean, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now(), nullable=False)
+
+
+class AsistenteSesionWizard(Base):
+    """Estado de un wizard conversacional multi-paso en Telegram."""
+    __tablename__ = "asistente_sesiones_wizard"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    telegram_user_id: Mapped[str] = mapped_column(String(50), nullable=False, index=True)
+    comando: Mapped[str] = mapped_column(String(20), nullable=False)  # "task" | "cliente"
+    paso_actual: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    datos_parciales: Mapped[dict] = mapped_column(JSON, nullable=False, default=dict)
+    expira_at: Mapped[datetime] = mapped_column(DateTime, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now(), nullable=False)

@@ -2,7 +2,7 @@ import enum
 from datetime import date, datetime
 
 from sqlalchemy import Date, DateTime, Enum, ForeignKey, Integer, String, Text, func
-from sqlalchemy.orm import Mapped, mapped_column
+from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from database import Base
 
@@ -42,3 +42,9 @@ class Vencimiento(Base):
     updated_at: Mapped[datetime] = mapped_column(
         DateTime, server_default=func.now(), onupdate=func.now(), nullable=False
     )
+
+    cliente = relationship("Cliente", foreign_keys=[cliente_id], lazy="joined")
+
+    @property
+    def cliente_nombre(self) -> str | None:
+        return self.cliente.nombre if self.cliente else None

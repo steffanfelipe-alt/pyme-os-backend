@@ -1,4 +1,4 @@
-from datetime import date
+from datetime import date, timedelta
 from typing import Optional
 
 from fastapi import HTTPException
@@ -35,8 +35,9 @@ def listar_vencimientos(
     cliente_id: Optional[int] = None,
     estado: Optional[EstadoVencimiento] = None,
     skip: int = 0,
-    limit: int = 50,
+    limit: int = 200,
     contador_id: Optional[int] = None,
+    dias_max: Optional[int] = 180,
 ) -> list[Vencimiento]:
     query = db.query(Vencimiento)
     if cliente_id is not None:
@@ -47,8 +48,12 @@ def listar_vencimientos(
         )
     if estado is not None:
         query = query.filter(Vencimiento.estado == estado)
+    # No mostrar vencimientos muy lejanos en el tiempo (default: max 180 días)
+    if dias_max is not None and estado not in (EstadoVencimiento.cumplido, EstadoVencimiento.vencido):
+        fecha_limite = date.today() + timedelta(days=dias_max)
+        query = query.filter(Vencimiento.fecha_vencimiento <= fecha_limite)
 
-    vencimientos = query.offset(skip).limit(limit).all()
+    vencimientos = query.order_by(Vencimiento.fecha_vencimiento).offset(skip).limit(limit).all()
 
     for v in vencimientos:
         _actualizar_estado_si_vencido(db, v)

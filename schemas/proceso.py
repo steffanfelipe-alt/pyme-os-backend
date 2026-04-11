@@ -65,6 +65,7 @@ class ProcesoTemplateResponse(BaseModel):
     created_at: datetime
     updated_at: datetime
     pasos: list[ProcesoPasoTemplateResponse] = []
+    tiene_version_anterior: bool = False
 
     model_config = {"from_attributes": True}
 
@@ -84,6 +85,7 @@ class ProcesoTemplateResponse(BaseModel):
             created_at=template.created_at,
             updated_at=template.updated_at,
             pasos=[ProcesoPasoTemplateResponse.model_validate(p) for p in pasos],
+            tiene_version_anterior=bool(getattr(template, "version_anterior_json", None)),
         )
 
 

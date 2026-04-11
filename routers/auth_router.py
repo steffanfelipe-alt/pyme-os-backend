@@ -31,9 +31,81 @@ class RegisterRequest(BaseModel):
     nombre: str
 
 
+class SetupEstudioRequest(BaseModel):
+    nombre_estudio: str
+    nombre_dueno: str
+    email: EmailStr
+    password: str
+
+
 class TokenResponse(BaseModel):
     access_token: str
     token_type: str = "bearer"
+
+
+class SetupStatusResponse(BaseModel):
+    necesita_setup: bool
+
+
+@router.get("/setup/status", response_model=SetupStatusResponse)
+def setup_status(db: Session = Depends(get_db)):
+    """Indica si el sistema necesita configuración inicial (sin empleados todavía)."""
+    hay_empleados = db.query(Empleado).filter(Empleado.activo == True).first() is not None
+    return SetupStatusResponse(necesita_setup=not hay_empleados)
+
+
+@router.post("/setup", response_model=TokenResponse, status_code=201)
+@limiter.limit("5/minute")
+def setup_estudio(request: Request, data: SetupEstudioRequest, db: Session = Depends(get_db)):
+    """
+    Crea el primer usuario dueño del estudio.
+    Solo funciona cuando no hay empleados en la base de datos.
+    """
+    hay_empleados = db.query(Empleado).filter(Empleado.activo == True).first()
+    if hay_empleados:
+        raise HTTPException(
+            status_code=409,
+            detail="El sistema ya fue configurado. Usá /register para nuevos usuarios.",
+        )
+
+    if db.query(Usuario).filter(Usuario.email == data.email).first():
+        raise HTTPException(status_code=409, detail="Ya existe un usuario con ese email")
+
+    if len(data.password) < 8:
+        raise HTTPException(status_code=422, detail="La contraseña debe tener al menos 8 caracteres")
+
+    # Crear usuario de autenticación
+    usuario = Usuario(
+        email=data.email,
+        password_hash=hash_password(data.password),
+        nombre=data.nombre_dueno,
+    )
+    db.add(usuario)
+    db.flush()
+
+    # Crear empleado como dueño
+    empleado = Empleado(
+        nombre=data.nombre_dueno,
+        email=data.email,
+        rol="dueno",
+        capacidad_horas_mes=160,
+        activo=True,
+    )
+    db.add(empleado)
+    db.commit()
+    db.refresh(empleado)
+
+    logger.info("Estudio '%s' configurado. Dueño: %s (%s)", data.nombre_estudio, data.nombre_dueno, data.email)
+
+    token = create_access_token({
+        "sub": str(usuario.id),
+        "email": usuario.email,
+        "nombre": empleado.nombre,
+        "rol": empleado.rol,
+        "empleado_id": empleado.id,
+        "studio_id": 1,
+    })
+    return TokenResponse(access_token=token)
 
 
 @router.post("/register", response_model=TokenResponse, status_code=201)
@@ -58,6 +130,7 @@ def register(request: Request, data: RegisterRequest, db: Session = Depends(get_
         "email": usuario.email,
         "rol": empleado.rol if empleado else None,
         "empleado_id": empleado.id if empleado else None,
+        "studio_id": 1,
     })
     return TokenResponse(access_token=token)
 
@@ -75,6 +148,7 @@ def login(request: Request, data: LoginRequest, db: Session = Depends(get_db)):
         "email": usuario.email,
         "rol": empleado.rol if empleado else None,
         "empleado_id": empleado.id if empleado else None,
+        "studio_id": 1,
     })
     return TokenResponse(access_token=token)
 

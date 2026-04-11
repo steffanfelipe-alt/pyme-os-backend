@@ -10,12 +10,19 @@ from database import Base
 class TipoTarea(str, enum.Enum):
     tarea = "tarea"
     requerimiento = "requerimiento"
+    declaracion = "declaracion"
+    conciliacion = "conciliacion"
+    auditoria = "auditoria"
+    asesoramiento = "asesoramiento"
+    otro = "otro"
 
 
 class PrioridadTarea(str, enum.Enum):
     baja = "baja"
     media = "media"
+    normal = "normal"
     alta = "alta"
+    urgente = "urgente"
 
 
 class EstadoTarea(str, enum.Enum):
@@ -28,7 +35,7 @@ class Tarea(Base):
     __tablename__ = "tareas"
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
-    cliente_id: Mapped[int] = mapped_column(Integer, ForeignKey("clientes.id"), nullable=False)
+    cliente_id: Mapped[int | None] = mapped_column(Integer, ForeignKey("clientes.id"), nullable=True)
     empleado_id: Mapped[int | None] = mapped_column(
         Integer, ForeignKey("empleados.id"), nullable=True
     )
@@ -58,3 +65,18 @@ class Tarea(Base):
     )
 
     sesiones = relationship("TareaSesion", back_populates="tarea", cascade="all, delete-orphan")
+
+    cliente = relationship("Cliente", foreign_keys=[cliente_id], lazy="joined")
+    empleado_rel = relationship("Empleado", foreign_keys=[empleado_id], lazy="joined")
+
+    @property
+    def cliente_nombre(self) -> str | None:
+        if self.cliente is None:
+            return None
+        return getattr(self.cliente, "nombre", None)
+
+    @property
+    def empleado_nombre(self) -> str | None:
+        if self.empleado_rel is None:
+            return None
+        return getattr(self.empleado_rel, "nombre", None)

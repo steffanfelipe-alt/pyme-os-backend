@@ -34,6 +34,15 @@ class StudioConfig(Base):
     telegram_active: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
     telegram_connect_code: Mapped[str | None] = mapped_column(String(10), nullable=True)
     telegram_connect_expires_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    # API Keys — almacenadas en DB, no expuestas en texto plano en responses
+    telegram_bot_token: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    telegram_webhook_url: Mapped[str | None] = mapped_column(String(500), nullable=True)
+    anthropic_api_key: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    smtp_host: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    smtp_port: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    smtp_user: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    smtp_password: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    smtp_from: Mapped[str | None] = mapped_column(String(255), nullable=True)
     updated_at: Mapped[datetime] = mapped_column(
         DateTime, server_default=func.now(), onupdate=func.now(), nullable=False
     )

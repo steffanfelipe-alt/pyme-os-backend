@@ -51,6 +51,7 @@ class ProcesoTemplate(Base):
     sop_version: Mapped[int] = mapped_column(Integer, default=1, nullable=False)
     activo: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
     creado_por: Mapped[int | None] = mapped_column(Integer, ForeignKey("empleados.id"), nullable=True)
+    version_anterior_json: Mapped[dict | None] = mapped_column(JSON, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now(), nullable=False)
     updated_at: Mapped[datetime] = mapped_column(
         DateTime, server_default=func.now(), onupdate=func.now(), nullable=False

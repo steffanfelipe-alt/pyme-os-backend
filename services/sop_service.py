@@ -38,10 +38,13 @@ def generar_sop_pdf(db: Session, template_id: int) -> str:
 
     os.makedirs("uploads/sops", exist_ok=True)
     nueva_version = template.sop_version + (1 if template.sop_url else 0)
-    ruta = f"uploads/sops/sop_{template_id}_v{nueva_version}.pdf"
+    nombre_archivo = f"sop_{template_id}_v{nueva_version}.pdf"
+    ruta_disco = f"uploads/sops/{nombre_archivo}"
+    # URL servida por FastAPI StaticFiles: /uploads/sops/...
+    ruta_url = f"/uploads/sops/{nombre_archivo}"
 
     doc = SimpleDocTemplate(
-        ruta,
+        ruta_disco,
         pagesize=A4,
         rightMargin=2 * cm,
         leftMargin=2 * cm,
@@ -113,10 +116,10 @@ def generar_sop_pdf(db: Session, template_id: int) -> str:
 
     doc.build(story)
 
-    template.sop_url = ruta
+    template.sop_url = ruta_url
     template.sop_version = nueva_version
     db.commit()
     db.refresh(template)
 
-    logger.info("SOP generado: %s (template_id=%s, v%s)", ruta, template_id, nueva_version)
-    return ruta
+    logger.info("SOP generado: %s (template_id=%s, v%s)", ruta_url, template_id, nueva_version)
+    return ruta_url
