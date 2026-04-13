@@ -16,6 +16,7 @@ from models.proceso import Automatizacion, EstadoRevisionAutomatizacion, Proceso
 from models.sop_documento import EstadoSop, SopDocumento
 from models.studio_config import StudioConfig
 from models.tarea import EstadoTarea, Tarea
+from models.tarea_sesion import TareaSesion
 from models.vencimiento import EstadoVencimiento, Vencimiento
 
 
@@ -130,6 +131,15 @@ def reporte_carga(db: Session, periodo: Optional[str]) -> dict:
             Tarea.fecha_completada <= ultimo_dia,
         ).count()
 
+        # Horas reales desde sesiones de trabajo (TareaSesion) en el período
+        sesiones = db.query(TareaSesion).filter(
+            TareaSesion.empleado_id == emp.id,
+            TareaSesion.minutos.isnot(None),
+            TareaSesion.inicio >= datetime.combine(primer_dia, datetime.min.time()),
+            TareaSesion.inicio <= datetime.combine(ultimo_dia, datetime.max.time()),
+        ).all()
+        horas_reales_sesiones = round(sum(s.minutos for s in sesiones if s.minutos) / 60, 2)
+
         if tareas_pendientes < 5:
             nivel_carga = "baja"
         elif tareas_pendientes <= 10:
@@ -143,6 +153,7 @@ def reporte_carga(db: Session, periodo: Optional[str]) -> dict:
             "tareas_pendientes": tareas_pendientes,
             "tareas_en_curso": tareas_en_curso,
             "tareas_completadas_periodo": tareas_completadas_periodo,
+            "horas_reales_sesiones": horas_reales_sesiones,
             "nivel_carga": nivel_carga,
         })
 
@@ -157,11 +168,12 @@ def reporte_rentabilidad(db: Session, periodo: Optional[str]) -> dict:
     config = _obtener_o_crear_config(db)
 
     if not config.tarifa_hora_pesos:
-        raise HTTPException(
-            status_code=400,
-            detail="Configurá la tarifa-hora del estudio antes de ver rentabilidad. "
-                   "Usar PUT /api/reportes/config para configurarla.",
-        )
+        return {
+            "sin_configurar": True,
+            "clientes": [],
+            "periodo": periodo_str,
+            "tarifa_hora": None,
+        }
 
     tarifa = float(config.tarifa_hora_pesos)
     clientes = db.query(Cliente).filter(Cliente.activo == True).all()

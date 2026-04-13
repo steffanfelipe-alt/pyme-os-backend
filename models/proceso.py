@@ -83,6 +83,7 @@ class ProcesoInstancia(Base):
         Enum(EstadoInstancia), default=EstadoInstancia.pendiente, nullable=False
     )
     progreso_pct: Mapped[float] = mapped_column(Float, default=0.0, nullable=False)
+    tiempo_real_minutos: Mapped[float | None] = mapped_column(Float, nullable=True)
     fecha_inicio: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
     fecha_fin: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
     creado_por: Mapped[int | None] = mapped_column(Integer, ForeignKey("empleados.id"), nullable=True)

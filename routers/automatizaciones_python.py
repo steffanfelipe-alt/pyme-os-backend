@@ -2,11 +2,12 @@
 Router para el builder de automatizaciones Python visuales.
 Permite crear, editar y generar código Python desde un grafo de nodos estilo n8n.
 """
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 
 from auth_dependencies import require_rol, solo_dueno
 from database import get_db
+from models.automatizacion_python import EstadoAutomatizacionPython
 from schemas.automatizacion_python import (
     AutomatizacionPythonCreate,
     AutomatizacionPythonResponse,
@@ -132,3 +133,28 @@ def configurar_inputs(
     Body: { "inputs": { "node_id": { "campo": "valor" } } }
     """
     return automatizacion_python_service.aplicar_inputs(db, auto_id, data.inputs)
+
+
+@router.patch("/{auto_id}/activar", response_model=AutomatizacionPythonResponse)
+def activar_automatizacion_python(
+    auto_id: int,
+    db: Session = Depends(get_db),
+    current_user: dict = Depends(require_rol("dueno", "contador")),
+):
+    """
+    Activa la automatización (borrador → activo).
+    Requiere que todos los inputs requeridos de los nodos estén configurados.
+    Retorna HTTP 400 con detalle de qué nodos faltan si no está lista.
+    """
+    pendientes = automatizacion_python_service.obtener_inputs_requeridos(db, auto_id)
+    if pendientes:
+        nodos_pendientes = ", ".join(p["node_name"] for p in pendientes)
+        raise HTTPException(
+            status_code=400,
+            detail=f"Configurá los inputs requeridos antes de activar: {nodos_pendientes}",
+        )
+    auto = automatizacion_python_service.obtener_automatizacion_python(db, auto_id)
+    auto.estado = EstadoAutomatizacionPython.activo
+    db.commit()
+    db.refresh(auto)
+    return auto
