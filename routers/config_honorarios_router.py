@@ -64,7 +64,12 @@ def impacto_honorarios(
         Cliente.activo == True,
         Cliente.honorario_personalizado == False,
     ).count()
-    return {"clientes_afectados": total}
+    personalizados = db.query(Cliente).filter(
+        Cliente.studio_id == studio_id,
+        Cliente.activo == True,
+        Cliente.honorario_personalizado == True,
+    ).count()
+    return {"clientes_afectados": total, "clientes_con_honorario_personalizado": personalizados}
 
 
 @router.patch("")

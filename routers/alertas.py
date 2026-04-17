@@ -48,7 +48,11 @@ def resumen_por_tipo(
     current_user: dict = Depends(require_rol("dueno", "contador", "administrativo")),
     studio_id: int = Depends(get_studio_id),
 ):
-    """Conteo de alertas activas agrupado por tipo."""
+    """Conteo de alertas activas agrupado por tipo. Regenera alertas de vencimientos antes de responder."""
+    try:
+        alert_service.generar_alertas(db, studio_id)
+    except Exception:
+        pass
     return alert_service.resumen_por_tipo(db, studio_id)
 
 

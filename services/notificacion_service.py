@@ -129,20 +129,37 @@ def job_notificaciones_vencimientos() -> None:
 
         logger.info("Job notificaciones — %d vencimientos encontrados", len(rows))
 
-        # Agrupar por contador asignado (None = sin contador → fallback)
-        grupos: dict = defaultdict(list)
+        # Agrupar por contador asignado (None = sin contador → fallback) para resumen al equipo
+        grupos_contador: dict = defaultdict(list)
+        # Agrupar por cliente para envío directo al cliente
+        grupos_cliente: dict = defaultdict(list)
         for venc, cliente in rows:
-            grupos[cliente.contador_asignado_id].append({
+            entrada = {
                 "cliente_nombre": cliente.nombre,
                 "cuit_cuil": cliente.cuit_cuil,
                 "tipo": venc.tipo.value,
                 "descripcion": venc.descripcion,
                 "fecha_vencimiento": venc.fecha_vencimiento,
-            })
+            }
+            grupos_contador[cliente.contador_asignado_id].append(entrada)
+            if getattr(cliente, "email", None):
+                grupos_cliente[(cliente.id, cliente.email, cliente.nombre)].append(entrada)
 
         emails_enviados = 0
-        for contador_id, vencimientos in grupos.items():
-            # Determinar destinatario
+
+        # Envío directo al cliente (dueño del vencimiento)
+        for (cliente_id, cliente_email, cliente_nombre), vencimientos in grupos_cliente.items():
+            asunto = f"PyME OS — Tus vencimientos próximos ({hoy.strftime('%d/%m/%Y')})"
+            cuerpo = _construir_cuerpo(cliente_nombre, vencimientos)
+            try:
+                _enviar_email(cliente_email, asunto, cuerpo)
+                logger.info("Job notificaciones — email enviado al cliente %s (%d vencimientos)", cliente_email, len(vencimientos))
+                emails_enviados += 1
+            except Exception as e:
+                logger.error("Job notificaciones — error enviando al cliente %s: %s", cliente_email, e)
+
+        # Resumen al contador asignado
+        for contador_id, vencimientos in grupos_contador.items():
             if contador_id is not None:
                 empleado = db.query(Empleado).filter(Empleado.id == contador_id).first()
                 if empleado and empleado.email:
@@ -155,20 +172,20 @@ def job_notificaciones_vencimientos() -> None:
                 destinatario_email = MAIL_TO_FALLBACK
                 destinatario_nombre = "equipo"
 
-            asunto = f"PyME OS — {len(vencimientos)} vencimientos próximos ({hoy.strftime('%d/%m/%Y')})"
+            asunto = f"PyME OS — Resumen: {len(vencimientos)} vencimientos próximos ({hoy.strftime('%d/%m/%Y')})"
             cuerpo = _construir_cuerpo(destinatario_nombre, vencimientos)
 
             try:
                 _enviar_email(destinatario_email, asunto, cuerpo)
                 logger.info(
-                    "Job notificaciones — email enviado a %s (%d vencimientos)",
+                    "Job notificaciones — resumen enviado al contador %s (%d vencimientos)",
                     destinatario_email,
                     len(vencimientos),
                 )
                 emails_enviados += 1
             except Exception as e:
                 logger.error(
-                    "Job notificaciones — error enviando a %s: %s",
+                    "Job notificaciones — error enviando resumen a %s: %s",
                     destinatario_email,
                     e,
                 )

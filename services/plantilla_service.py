@@ -116,31 +116,37 @@ def aplicar_plantillas_a_cliente(db: Session, cliente_id: int, studio_id: int) -
         dia = _calcular_dia(plantilla, cliente.cuit_cuil)
 
         if plantilla.recurrencia == RecurrenciaPlantilla.mensual:
-            for i in range(12):
+            for i in range(13):  # iterar 13 para asegurarnos 12 futuros incluso si el mes actual ya pasó
                 mes_offset = hoy.month - 1 + i
                 año = hoy.year + mes_offset // 12
                 mes = mes_offset % 12 + 1
                 fecha = _fecha_segura(año, mes, dia)
+                if fecha < hoy:
+                    continue
                 descripcion = _descripcion(plantilla.descripcion_template, mes, año)
                 _crear_vencimiento_si_no_existe(db, cliente_id, plantilla, fecha, descripcion, studio_id)
                 generados += 1
 
         elif plantilla.recurrencia == RecurrenciaPlantilla.bimestral:
-            for i in range(6):
+            for i in range(7):
                 mes_offset = hoy.month - 1 + (i * 2)
                 año = hoy.year + mes_offset // 12
                 mes = mes_offset % 12 + 1
                 fecha = _fecha_segura(año, mes, dia)
+                if fecha < hoy:
+                    continue
                 descripcion = _descripcion(plantilla.descripcion_template, mes, año)
                 _crear_vencimiento_si_no_existe(db, cliente_id, plantilla, fecha, descripcion, studio_id)
                 generados += 1
 
         elif plantilla.recurrencia == RecurrenciaPlantilla.cuatrimestral:
-            for i in range(3):
+            for i in range(4):
                 mes_offset = hoy.month - 1 + (i * 4)
                 año = hoy.year + mes_offset // 12
                 mes = mes_offset % 12 + 1
                 fecha = _fecha_segura(año, mes, dia)
+                if fecha < hoy:
+                    continue
                 descripcion = _descripcion(plantilla.descripcion_template, mes, año)
                 _crear_vencimiento_si_no_existe(db, cliente_id, plantilla, fecha, descripcion, studio_id)
                 generados += 1
@@ -149,9 +155,10 @@ def aplicar_plantillas_a_cliente(db: Session, cliente_id: int, studio_id: int) -
             mes = plantilla.mes_inicio or hoy.month
             año = hoy.year if hoy.month <= mes else hoy.year + 1
             fecha = _fecha_segura(año, mes, dia)
-            descripcion = _descripcion(plantilla.descripcion_template, mes, año)
-            _crear_vencimiento_si_no_existe(db, cliente_id, plantilla, fecha, descripcion, studio_id)
-            generados += 1
+            if fecha >= hoy:
+                descripcion = _descripcion(plantilla.descripcion_template, mes, año)
+                _crear_vencimiento_si_no_existe(db, cliente_id, plantilla, fecha, descripcion, studio_id)
+                generados += 1
 
     cliente.plantilla_aplicada = True
     db.commit()
