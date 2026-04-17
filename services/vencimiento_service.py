@@ -58,8 +58,15 @@ def listar_vencimientos(
 
     vencimientos = query.order_by(Vencimiento.fecha_vencimiento).offset(skip).limit(limit).all()
 
+    # Actualizar estado vencido en batch — un solo commit en vez de N commits en loop
+    hoy = date.today()
+    actualizado = False
     for v in vencimientos:
-        _actualizar_estado_si_vencido(db, v)
+        if v.estado == EstadoVencimiento.pendiente and v.fecha_vencimiento < hoy:
+            v.estado = EstadoVencimiento.vencido
+            actualizado = True
+    if actualizado:
+        db.commit()
 
     return vencimientos
 

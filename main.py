@@ -173,6 +173,7 @@ async def startup() -> None:
         trigger="cron",
         hour=8,
         minute=0,
+        timezone="America/Argentina/Buenos_Aires",
         id="notificaciones_vencimientos",
     )
 
@@ -228,7 +229,7 @@ async def startup() -> None:
     )
 
     scheduler.start()
-    logger.info("Scheduler iniciado — notificaciones 08:00, watch Gmail cada 3 días, resumen asistente 08:00 AR, resumen semanal lunes 08:00 AR")
+    logger.info("Scheduler iniciado — notificaciones 08:00 AR, watch Gmail cada 3 días, resumen asistente 08:00 AR, resumen semanal lunes 08:00 AR")
 
 
 @app.on_event("shutdown")

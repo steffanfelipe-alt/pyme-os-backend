@@ -64,6 +64,11 @@ def _enviar_email(destinatario_email: str, asunto: str, cuerpo_html: str) -> Non
         server.sendmail(MAIL_FROM, destinatario_email, msg.as_string())
 
 
+def enviar_email_notificacion(destinatario: str, asunto: str, cuerpo: str) -> None:
+    """Wrapper público para envío de emails de notificación (usado por alert_service)."""
+    _enviar_email(destinatario, asunto, cuerpo)
+
+
 def job_notificaciones_vencimientos() -> None:
     """Job diario: agrupa vencimientos por contador asignado y envía un email a cada uno."""
     logger.info("Job notificaciones — iniciando")
@@ -81,17 +86,20 @@ def job_notificaciones_vencimientos() -> None:
         )
         limite = hoy + timedelta(days=umbral_dias)
 
-        # Auto-marcar vencidos
+        # Auto-marcar vencidos (global, afecta todos los estudios intencionalmente)
         db.query(Vencimiento).filter(
             Vencimiento.estado == EstadoVencimiento.pendiente,
             Vencimiento.fecha_vencimiento < hoy,
         ).update({"estado": EstadoVencimiento.vencido})
         db.commit()
 
-        # Actualizar alertas de vencimientos — siempre, independiente del SMTP
+        # Actualizar alertas por estudio — generar_alertas requiere studio_id
         try:
-            alert_service.generar_alertas(db)
-            logger.info("Job notificaciones — alertas actualizadas")
+            from models.studio import Studio
+            studios = db.query(Studio).all()
+            for studio in studios:
+                alert_service.generar_alertas(db, studio.id)
+            logger.info("Job notificaciones — alertas actualizadas para %d estudios", len(studios))
         except Exception as e:
             logger.error("Job notificaciones — error al generar alertas: %s", e)
 
@@ -101,6 +109,7 @@ def job_notificaciones_vencimientos() -> None:
             return
 
         # Buscar vencimientos próximos + vencidos con datos del cliente
+        # Filtro por studio_id evita mezclar datos entre estudios
         rows = (
             db.query(Vencimiento, Cliente)
             .join(Cliente, Vencimiento.cliente_id == Cliente.id)
@@ -108,6 +117,7 @@ def job_notificaciones_vencimientos() -> None:
                 Vencimiento.estado.in_([EstadoVencimiento.pendiente, EstadoVencimiento.vencido]),
                 Vencimiento.fecha_vencimiento <= limite,
                 Cliente.activo == True,
+                Vencimiento.studio_id == Cliente.studio_id,
             )
             .order_by(Vencimiento.fecha_vencimiento)
             .all()
