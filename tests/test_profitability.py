@@ -3,11 +3,13 @@ from datetime import date
 from models.cliente import Cliente, TipoPersona, CondicionFiscal
 from models.tarea import EstadoTarea, PrioridadTarea, TipoTarea, Tarea
 from models.rentabilidad import RentabilidadMensual
+from tests.conftest import _get_or_create_studio
 
 PERIODO = "2026-03"
 
 
 def _crear_cliente_con_honorario(db, nombre, cuit, honorario):
+    studio_id = _get_or_create_studio(db)
     cliente = Cliente(
         tipo_persona=TipoPersona.juridica,
         nombre=nombre,
@@ -15,6 +17,7 @@ def _crear_cliente_con_honorario(db, nombre, cuit, honorario):
         condicion_fiscal=CondicionFiscal.responsable_inscripto,
         honorarios_mensuales=honorario,
         activo=True,
+        studio_id=studio_id,
     )
     db.add(cliente)
     db.commit()
@@ -24,8 +27,10 @@ def _crear_cliente_con_honorario(db, nombre, cuit, honorario):
 
 def _crear_tarea_completada(db, cliente_id, horas_reales=None, horas_estimadas=None,
                              fecha_completada=None, fecha_limite=None):
+    studio_id = _get_or_create_studio(db)
     tarea = Tarea(
         cliente_id=cliente_id,
+        studio_id=studio_id,
         titulo="Tarea completada",
         tipo=TipoTarea.tarea,
         estado=EstadoTarea.completada,
@@ -84,6 +89,7 @@ def test_cliente_sin_honorario_aparece_en_lista(client, auth_headers, db):
         condicion_fiscal=CondicionFiscal.monotributista,
         honorarios_mensuales=None,
         activo=True,
+        studio_id=_get_or_create_studio(db),
     )
     db.add(cliente)
     db.commit()
@@ -107,6 +113,7 @@ def test_division_por_cero_no_explota(client, auth_headers, db):
     # Tarea sin horas_reales ni horas_estimadas
     tarea = Tarea(
         cliente_id=cliente.id,
+        studio_id=cliente.studio_id,
         titulo="Sin horas",
         tipo=TipoTarea.tarea,
         estado=EstadoTarea.completada,
@@ -135,6 +142,7 @@ def test_historial_cliente_orden_descendente(client, auth_headers, db):
     for periodo in ["2026-01", "2026-02", "2026-03"]:
         snap = RentabilidadMensual(
             cliente_id=cliente.id,
+            studio_id=cliente.studio_id,
             periodo=periodo,
             honorario=4000.0,
             horas_reales=5.0,

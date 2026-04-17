@@ -3,7 +3,7 @@ from typing import Optional
 from fastapi import APIRouter, Depends, File, UploadFile
 from sqlalchemy.orm import Session
 
-from auth_dependencies import require_rol, solo_dueno, verificar_acceso_cliente
+from auth_dependencies import get_studio_id, require_rol, solo_dueno, verificar_acceso_cliente
 from database import get_db
 from schemas.documento import ChecklistResponse, DocumentoResponse, DocumentoUpdate
 from services import documento_service
@@ -22,9 +22,10 @@ async def subir_documento(
     vencimiento_id: Optional[int] = None,
     db: Session = Depends(get_db),
     current_user: dict = Depends(require_rol("dueno", "contador", "administrativo")),
+    studio_id: int = Depends(get_studio_id),
 ):
     verificar_acceso_cliente(current_user, cliente_id, db)
-    return await documento_service.subir_documento(db, cliente_id, file, vencimiento_id)
+    return await documento_service.subir_documento(db, cliente_id, file, studio_id, vencimiento_id)
 
 
 @router.get(
@@ -35,9 +36,10 @@ def listar_documentos(
     cliente_id: int,
     db: Session = Depends(get_db),
     current_user: dict = Depends(require_rol("dueno", "contador", "administrativo")),
+    studio_id: int = Depends(get_studio_id),
 ):
     verificar_acceso_cliente(current_user, cliente_id, db)
-    return documento_service.listar_documentos(db, cliente_id)
+    return documento_service.listar_documentos(db, cliente_id, studio_id)
 
 
 @router.put(
@@ -49,8 +51,9 @@ def actualizar_documento(
     data: DocumentoUpdate,
     db: Session = Depends(get_db),
     current_user: dict = Depends(require_rol("dueno", "contador", "administrativo")),
+    studio_id: int = Depends(get_studio_id),
 ):
-    return documento_service.actualizar_documento(db, doc_id, data)
+    return documento_service.actualizar_documento(db, doc_id, data, studio_id)
 
 
 @router.get(
@@ -62,13 +65,14 @@ def checklist_documentacion(
     periodo: str,
     db: Session = Depends(get_db),
     current_user: dict = Depends(require_rol("dueno", "contador", "administrativo")),
+    studio_id: int = Depends(get_studio_id),
 ):
     """
     Retorna el estado de documentación de un cliente para un período fiscal.
     Indica qué documentos llegaron, cuáles faltan, y el % de completitud.
     """
     verificar_acceso_cliente(current_user, cliente_id, db)
-    return documento_service.obtener_checklist(db, cliente_id, periodo)
+    return documento_service.obtener_checklist(db, cliente_id, periodo, studio_id)
 
 
 @router.delete(
@@ -79,5 +83,6 @@ def eliminar_documento(
     doc_id: int,
     db: Session = Depends(get_db),
     current_user: dict = Depends(solo_dueno),
+    studio_id: int = Depends(get_studio_id),
 ):
-    documento_service.eliminar_documento(db, doc_id)
+    documento_service.eliminar_documento(db, doc_id, studio_id)

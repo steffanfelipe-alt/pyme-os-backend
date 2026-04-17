@@ -1,7 +1,7 @@
 from fastapi import APIRouter, Depends
 from sqlalchemy.orm import Session
 
-from auth_dependencies import solo_dueno
+from auth_dependencies import get_studio_id, solo_dueno
 from database import get_db
 from schemas.automatizacion import (
     AutomatizacionResponse,
@@ -25,11 +25,12 @@ async def generar_automatizacion(
     data: GenerarFlujoRequest,
     db: Session = Depends(get_db),
     current_user: dict = Depends(solo_dueno),
+    studio_id: int = Depends(get_studio_id),
 ):
     """
     Analiza los pasos de un template, genera el flujo n8n y persiste la automatización.
     """
-    pasos = proceso_service.obtener_pasos_template(db, data.template_id)
+    pasos = proceso_service.obtener_pasos_template(db, data.template_id, studio_id)
     pasos_dict = [
         {
             "orden": p.orden,
@@ -60,6 +61,7 @@ async def generar_automatizacion(
         flujo_json=flujo,
         analisis_pasos=analisis,
         ahorro_horas_mes=ahorro_final,
+        studio_id=studio_id,
     )
 
     return GenerarFlujoResponse(automatizacion=AutomatizacionResponse.model_validate(automatizacion))
@@ -69,17 +71,19 @@ async def generar_automatizacion(
 def listar_automatizaciones(
     db: Session = Depends(get_db),
     current_user: dict = Depends(solo_dueno),
+    studio_id: int = Depends(get_studio_id),
 ):
-    return automatizacion_service.listar_automatizaciones(db)
+    return automatizacion_service.listar_automatizaciones(db, studio_id)
 
 
 @router.get("/pendientes", response_model=list[AutomatizacionResponse])
 def listar_pendientes_revision(
     db: Session = Depends(get_db),
     current_user: dict = Depends(solo_dueno),
+    studio_id: int = Depends(get_studio_id),
 ):
     """Lista todas las automatizaciones pendientes de revisión."""
-    return automatizacion_service.listar_pendientes_revision(db)
+    return automatizacion_service.listar_pendientes_revision(db, studio_id)
 
 
 @router.get("/{automatizacion_id}", response_model=AutomatizacionResponse)
@@ -87,8 +91,9 @@ def obtener_automatizacion(
     automatizacion_id: int,
     db: Session = Depends(get_db),
     current_user: dict = Depends(solo_dueno),
+    studio_id: int = Depends(get_studio_id),
 ):
-    return automatizacion_service.obtener_automatizacion(db, automatizacion_id)
+    return automatizacion_service.obtener_automatizacion(db, automatizacion_id, studio_id)
 
 
 @router.put("/{automatizacion_id}", response_model=AutomatizacionResponse)
@@ -97,7 +102,9 @@ def actualizar_automatizacion(
     data: AutomatizacionUpdate,
     db: Session = Depends(get_db),
     current_user: dict = Depends(solo_dueno),
+    studio_id: int = Depends(get_studio_id),
 ):
+    automatizacion_service.obtener_automatizacion(db, automatizacion_id, studio_id)  # access check
     return automatizacion_service.actualizar_automatizacion(db, automatizacion_id, data)
 
 
@@ -106,7 +113,9 @@ def eliminar_automatizacion(
     automatizacion_id: int,
     db: Session = Depends(get_db),
     current_user: dict = Depends(solo_dueno),
+    studio_id: int = Depends(get_studio_id),
 ):
+    automatizacion_service.obtener_automatizacion(db, automatizacion_id, studio_id)  # access check
     automatizacion_service.eliminar_automatizacion(db, automatizacion_id)
 
 
@@ -115,8 +124,10 @@ def aprobar_automatizacion(
     automatizacion_id: int,
     db: Session = Depends(get_db),
     current_user: dict = Depends(solo_dueno),
+    studio_id: int = Depends(get_studio_id),
 ):
     """Aprueba una automatización y registra el timestamp de aprobación."""
+    automatizacion_service.obtener_automatizacion(db, automatizacion_id, studio_id)  # access check
     return automatizacion_service.aprobar_automatizacion(db, automatizacion_id)
 
 
@@ -126,6 +137,8 @@ def descartar_automatizacion(
     body: DescartarRequest,
     db: Session = Depends(get_db),
     current_user: dict = Depends(solo_dueno),
+    studio_id: int = Depends(get_studio_id),
 ):
     """Descarta una automatización con motivo opcional."""
+    automatizacion_service.obtener_automatizacion(db, automatizacion_id, studio_id)  # access check
     return automatizacion_service.descartar_automatizacion(db, automatizacion_id, body.motivo_descarte)

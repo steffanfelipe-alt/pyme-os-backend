@@ -381,7 +381,17 @@ async def _enviar_confirmacion_task(telegram_user_id: str, datos: dict) -> None:
 async def _crear_tarea_desde_wizard(db: Session, datos: dict, telegram_user_id: str) -> None:
     from schemas.tarea import TareaCreate
     from models.tarea import TipoTarea, PrioridadTarea
+    from models.empleado import Empleado
     from services.tarea_service import crear_tarea
+
+    # Obtener studio_id del empleado vinculado al canal de Telegram
+    canal = db.query(AsistenteCanal).filter(
+        AsistenteCanal.canal == "telegram",
+        AsistenteCanal.identificador == telegram_user_id,
+        AsistenteCanal.activo == True,
+    ).first()
+    empleado = db.query(Empleado).filter(Empleado.id == canal.usuario_id).first() if canal else None
+    studio_id = empleado.studio_id if empleado else 1
 
     fecha_limite = None
     if datos.get("fecha_limite"):
@@ -395,7 +405,7 @@ async def _crear_tarea_desde_wizard(db: Session, datos: dict, telegram_user_id: 
         cliente_id=datos.get("cliente_id"),
         fecha_limite=fecha_limite,
     )
-    tarea = crear_tarea(db, tarea_data)
+    tarea = crear_tarea(db, tarea_data, studio_id)
     await tg.send_message(
         int(telegram_user_id),
         f"✅ Tarea creada: <b>{tarea.titulo}</b>\n"
@@ -517,10 +527,19 @@ async def _enviar_confirmacion_cliente(telegram_user_id: str, datos: dict) -> No
 
 async def _crear_cliente_desde_wizard(db: Session, datos: dict, telegram_user_id: str) -> None:
     from schemas.cliente import ClienteCreate
-    from models.cliente import CondicionFiscal
+    from models.cliente import CondicionFiscal, TipoPersona
+    from models.empleado import Empleado
     from services.cliente_service import crear_cliente
 
-    from models.cliente import TipoPersona
+    # Obtener studio_id del empleado vinculado al canal
+    canal = db.query(AsistenteCanal).filter(
+        AsistenteCanal.canal == "telegram",
+        AsistenteCanal.identificador == telegram_user_id,
+        AsistenteCanal.activo == True,
+    ).first()
+    empleado = db.query(Empleado).filter(Empleado.id == canal.usuario_id).first() if canal else None
+    studio_id = empleado.studio_id if empleado else 1
+
     cliente_data = ClienteCreate(
         tipo_persona=TipoPersona.fisica,
         nombre=datos["nombre"],
@@ -530,7 +549,7 @@ async def _crear_cliente_desde_wizard(db: Session, datos: dict, telegram_user_id
         telefono=datos.get("telefono"),
         honorarios_mensuales=datos.get("honorarios_mensuales"),
     )
-    cliente = crear_cliente(db, cliente_data)
+    cliente = crear_cliente(db, cliente_data, studio_id)
     await tg.send_message(
         int(telegram_user_id),
         f"✅ Cliente registrado: <b>{cliente.nombre}</b>\n"
@@ -543,8 +562,18 @@ async def _crear_cliente_desde_wizard(db: Session, datos: dict, telegram_user_id
 async def _handle_resolve_alert(db: Session, callback_data: str, telegram_user_id: str) -> None:
     try:
         alerta_id = int(callback_data.replace("resolve_alert_", ""))
+        from models.empleado import Empleado
         from services.alert_service import resolver_alerta
-        resolver_alerta(db, alerta_id)
+
+        canal = db.query(AsistenteCanal).filter(
+            AsistenteCanal.canal == "telegram",
+            AsistenteCanal.identificador == telegram_user_id,
+            AsistenteCanal.activo == True,
+        ).first()
+        empleado = db.query(Empleado).filter(Empleado.id == canal.usuario_id).first() if canal else None
+        studio_id = empleado.studio_id if empleado else 1
+
+        resolver_alerta(db, alerta_id, studio_id)
         await tg.send_message(int(telegram_user_id), "✅ Alerta marcada como resuelta.")
     except Exception as e:
         logger.error("Error resolviendo alerta desde Telegram: %s", e)

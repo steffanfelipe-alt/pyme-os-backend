@@ -90,12 +90,12 @@ def _score_a_nivel(score: float) -> str:
     return "rojo"
 
 
-def calcular_score_cliente(db: Session, cliente_id: int) -> dict:
+def calcular_score_cliente(db: Session, cliente_id: int, studio_id: int = None) -> dict:
     """Calcula y persiste el risk_score del cliente. risk_explanation se genera en background."""
-    cliente = db.query(Cliente).filter(
-        Cliente.id == cliente_id,
-        Cliente.activo == True,
-    ).first()
+    filtros = [Cliente.id == cliente_id, Cliente.activo == True]
+    if studio_id is not None:
+        filtros.append(Cliente.studio_id == studio_id)
+    cliente = db.query(Cliente).filter(*filtros).first()
     if not cliente:
         raise HTTPException(status_code=404, detail="Cliente no encontrado")
 
@@ -177,9 +177,12 @@ async def generar_risk_explanation_background(cliente_id: int, factores: dict) -
         logger.error("Error generando risk_explanation para cliente id=%d: %s", cliente_id, e)
 
 
-def listar_clientes_por_riesgo(db: Session) -> list[dict]:
+def listar_clientes_por_riesgo(db: Session, studio_id: int = None) -> list[dict]:
     """Clientes activos ordenados por risk_score descendente (rojos primero)."""
-    clientes = db.query(Cliente).filter(Cliente.activo == True).all()
+    filtros = [Cliente.activo == True]
+    if studio_id is not None:
+        filtros.append(Cliente.studio_id == studio_id)
+    clientes = db.query(Cliente).filter(*filtros).all()
     resultado = [
         {
             "id": c.id,
@@ -196,9 +199,12 @@ def listar_clientes_por_riesgo(db: Session) -> list[dict]:
     return resultado
 
 
-def recalcular_todos(db: Session) -> dict:
+def recalcular_todos(db: Session, studio_id: int = None) -> dict:
     """Recalcula el score de todos los clientes activos. Retorna conteo por nivel."""
-    clientes = db.query(Cliente).filter(Cliente.activo == True).all()
+    filtros = [Cliente.activo == True]
+    if studio_id is not None:
+        filtros.append(Cliente.studio_id == studio_id)
+    clientes = db.query(Cliente).filter(*filtros).all()
     conteos = {"procesados": 0, "rojos": 0, "amarillos": 0, "verdes": 0}
 
     for cliente in clientes:

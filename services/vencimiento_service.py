@@ -18,12 +18,14 @@ def _actualizar_estado_si_vencido(db: Session, vencimiento: Vencimiento) -> None
         db.commit()
 
 
-def crear_vencimiento(db: Session, data: VencimientoCreate) -> Vencimiento:
-    cliente = db.query(Cliente).filter(Cliente.id == data.cliente_id, Cliente.activo == True).first()
+def crear_vencimiento(db: Session, data: VencimientoCreate, studio_id: int) -> Vencimiento:
+    cliente = db.query(Cliente).filter(
+        Cliente.id == data.cliente_id, Cliente.studio_id == studio_id, Cliente.activo == True
+    ).first()
     if not cliente:
         raise HTTPException(status_code=404, detail="Cliente no encontrado")
 
-    vencimiento = Vencimiento(**data.model_dump())
+    vencimiento = Vencimiento(**data.model_dump(), studio_id=studio_id)
     db.add(vencimiento)
     db.commit()
     db.refresh(vencimiento)
@@ -32,6 +34,7 @@ def crear_vencimiento(db: Session, data: VencimientoCreate) -> Vencimiento:
 
 def listar_vencimientos(
     db: Session,
+    studio_id: int,
     cliente_id: Optional[int] = None,
     estado: Optional[EstadoVencimiento] = None,
     skip: int = 0,
@@ -39,7 +42,7 @@ def listar_vencimientos(
     contador_id: Optional[int] = None,
     dias_max: Optional[int] = 180,
 ) -> list[Vencimiento]:
-    query = db.query(Vencimiento)
+    query = db.query(Vencimiento).filter(Vencimiento.studio_id == studio_id)
     if cliente_id is not None:
         query = query.filter(Vencimiento.cliente_id == cliente_id)
     if contador_id is not None:
@@ -61,16 +64,18 @@ def listar_vencimientos(
     return vencimientos
 
 
-def obtener_vencimiento(db: Session, vencimiento_id: int) -> Vencimiento:
-    vencimiento = db.query(Vencimiento).filter(Vencimiento.id == vencimiento_id).first()
+def obtener_vencimiento(db: Session, vencimiento_id: int, studio_id: int) -> Vencimiento:
+    vencimiento = db.query(Vencimiento).filter(
+        Vencimiento.id == vencimiento_id, Vencimiento.studio_id == studio_id
+    ).first()
     if not vencimiento:
         raise HTTPException(status_code=404, detail="Vencimiento no encontrado")
     _actualizar_estado_si_vencido(db, vencimiento)
     return vencimiento
 
 
-def actualizar_vencimiento(db: Session, vencimiento_id: int, data: VencimientoUpdate) -> Vencimiento:
-    vencimiento = obtener_vencimiento(db, vencimiento_id)
+def actualizar_vencimiento(db: Session, vencimiento_id: int, data: VencimientoUpdate, studio_id: int) -> Vencimiento:
+    vencimiento = obtener_vencimiento(db, vencimiento_id, studio_id)
     cambios = data.model_dump(exclude_unset=True)
 
     if cambios.get("estado") == EstadoVencimiento.cumplido and not cambios.get("fecha_cumplimiento"):
@@ -85,7 +90,7 @@ def actualizar_vencimiento(db: Session, vencimiento_id: int, data: VencimientoUp
     return vencimiento
 
 
-def eliminar_vencimiento(db: Session, vencimiento_id: int) -> None:
-    vencimiento = obtener_vencimiento(db, vencimiento_id)
+def eliminar_vencimiento(db: Session, vencimiento_id: int, studio_id: int) -> None:
+    vencimiento = obtener_vencimiento(db, vencimiento_id, studio_id)
     db.delete(vencimiento)
     db.commit()

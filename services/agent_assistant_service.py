@@ -44,6 +44,15 @@ async def chat(
     try:
         import anthropic
         from prompts.assistant_contable import DISCLAIMER_TEXT, SYSTEM_PROMPT
+        from prompts.conocimiento_fiscal import CONOCIMIENTO_FISCAL_AR
+        from prompts.conocimiento_plataforma import CONOCIMIENTO_PLATAFORMA
+
+        # Inyectar el conocimiento completo en el system prompt del chatbot
+        system_completo = f"""{SYSTEM_PROMPT}
+
+{CONOCIMIENTO_FISCAL_AR}
+
+{CONOCIMIENTO_PLATAFORMA}"""
 
         messages = []
         for msg in conversation_history[-20:]:
@@ -51,11 +60,24 @@ async def chat(
                 messages.append({"role": msg["role"], "content": msg["content"]})
         messages.append({"role": "user", "content": message})
 
-        client = anthropic.AsyncAnthropic(api_key=os.environ.get("ANTHROPIC_API_KEY", ""))
+        # Obtener modelo y API key del studio si está disponible
+        api_key = os.environ.get("ANTHROPIC_API_KEY", "")
+        modelo = "claude-sonnet-4-6"
+        if studio_id:
+            try:
+                from models.studio import Studio
+                studio_db = db.query(Studio).filter(Studio.id == studio_id).first()
+                if studio_db:
+                    api_key = studio_db.claude_api_key_encrypted or api_key
+                    modelo = studio_db.claude_modelo or modelo
+            except Exception:
+                pass
+
+        client = anthropic.AsyncAnthropic(api_key=api_key)
         response = await client.messages.create(
-            model="claude-sonnet-4-6",
+            model=modelo,
             max_tokens=1000,
-            system=SYSTEM_PROMPT,
+            system=system_completo,
             messages=messages,
         )
         assistant_text = response.content[0].text.strip()

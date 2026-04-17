@@ -101,7 +101,7 @@ def _generar_mensaje(nivel: str, dias_restantes: int, tipo_vencimiento: str,
     )
 
 
-def generar_alertas(db: Session) -> list[dict]:
+def generar_alertas(db: Session, studio_id: int) -> list[dict]:
     """
     Recorre vencimientos pendientes. Genera o actualiza alertas para los que
     caen dentro del umbral configurado. Retorna la lista de alertas generadas/actualizadas.
@@ -110,6 +110,7 @@ def generar_alertas(db: Session) -> list[dict]:
     umbral = _get_umbral_dias(db)
 
     vencimientos = db.query(Vencimiento).filter(
+        Vencimiento.studio_id == studio_id,
         Vencimiento.estado == EstadoVencimiento.pendiente,
     ).all()
 
@@ -155,6 +156,7 @@ def generar_alertas(db: Session) -> list[dict]:
             alerta.mensaje = mensaje
         else:
             alerta = AlertaVencimiento(
+                studio_id=studio_id,
                 vencimiento_id=venc.id,
                 cliente_id=venc.cliente_id,
                 nivel=nivel,
@@ -213,7 +215,7 @@ def _intentar_notificar_telegram(db: Session, alerta: "AlertaVencimiento", venc)
         logger.warning("No se pudo enviar alerta Telegram: %s", e)
 
 
-def listar_alertas(db: Session, nivel: str | None = None) -> list[dict]:
+def listar_alertas(db: Session, studio_id: int, nivel: str | None = None) -> list[dict]:
     """
     Retorna alertas no resueltas, ordenadas por nivel (críticas primero)
     y luego por días_restantes ascendente.
@@ -222,6 +224,7 @@ def listar_alertas(db: Session, nivel: str | None = None) -> list[dict]:
     from models.vencimiento import Vencimiento
 
     query = db.query(AlertaVencimiento).filter(
+        AlertaVencimiento.studio_id == studio_id,
         AlertaVencimiento.resuelta_at == None,
     )
     if nivel:
@@ -264,9 +267,10 @@ def listar_alertas(db: Session, nivel: str | None = None) -> list[dict]:
     ]
 
 
-def resumen_alertas(db: Session) -> dict:
+def resumen_alertas(db: Session, studio_id: int) -> dict:
     """Conteo de alertas no resueltas por nivel."""
     alertas = db.query(AlertaVencimiento).filter(
+        AlertaVencimiento.studio_id == studio_id,
         AlertaVencimiento.resuelta_at == None,
     ).all()
     return {
@@ -276,8 +280,10 @@ def resumen_alertas(db: Session) -> dict:
     }
 
 
-def marcar_vista(db: Session, alerta_id: int) -> dict:
-    alerta = db.query(AlertaVencimiento).filter(AlertaVencimiento.id == alerta_id).first()
+def marcar_vista(db: Session, alerta_id: int, studio_id: int) -> dict:
+    alerta = db.query(AlertaVencimiento).filter(
+        AlertaVencimiento.id == alerta_id, AlertaVencimiento.studio_id == studio_id
+    ).first()
     if not alerta:
         raise HTTPException(status_code=404, detail="Alerta no encontrada")
     alerta.vista = True
@@ -285,10 +291,428 @@ def marcar_vista(db: Session, alerta_id: int) -> dict:
     return {"id": alerta.id, "vista": alerta.vista}
 
 
-def resolver_alerta(db: Session, alerta_id: int) -> dict:
-    alerta = db.query(AlertaVencimiento).filter(AlertaVencimiento.id == alerta_id).first()
+def resolver_alerta(db: Session, alerta_id: int, studio_id: int) -> dict:
+    alerta = db.query(AlertaVencimiento).filter(
+        AlertaVencimiento.id == alerta_id, AlertaVencimiento.studio_id == studio_id
+    ).first()
     if not alerta:
         raise HTTPException(status_code=404, detail="Alerta no encontrada")
     alerta.resuelta_at = datetime.utcnow()
     db.commit()
     return {"id": alerta.id, "resuelta_at": alerta.resuelta_at.isoformat()}
+
+
+def ignorar_alerta(db: Session, alerta_id: int, studio_id: int) -> dict:
+    alerta = db.query(AlertaVencimiento).filter(
+        AlertaVencimiento.id == alerta_id, AlertaVencimiento.studio_id == studio_id
+    ).first()
+    if not alerta:
+        raise HTTPException(status_code=404, detail="Alerta no encontrada")
+    alerta.ignorada_at = datetime.utcnow()
+    db.commit()
+    return {"id": alerta.id, "ignorada_at": alerta.ignorada_at.isoformat()}
+
+
+def listar_alertas_v2(
+    db: Session,
+    studio_id: int,
+    tipo: str | None = None,
+    cliente_id: int | None = None,
+    incluir_resueltas: bool = False,
+) -> list[dict]:
+    """Lista alertas con filtros por tipo y cliente_id. Excluye ignoradas y resueltas por defecto."""
+    from models.cliente import Cliente
+
+    query = db.query(AlertaVencimiento).filter(
+        AlertaVencimiento.studio_id == studio_id,
+    )
+    if not incluir_resueltas:
+        query = query.filter(
+            AlertaVencimiento.resuelta_at.is_(None),
+            AlertaVencimiento.ignorada_at.is_(None),
+        )
+    if tipo:
+        query = query.filter(AlertaVencimiento.tipo == tipo)
+    if cliente_id:
+        query = query.filter(AlertaVencimiento.cliente_id == cliente_id)
+
+    alertas = query.order_by(AlertaVencimiento.created_at.desc()).all()
+
+    cliente_ids = {a.cliente_id for a in alertas if a.cliente_id}
+    clientes_map = {
+        c.id: c.nombre
+        for c in db.query(Cliente).filter(Cliente.id.in_(cliente_ids)).all()
+    } if cliente_ids else {}
+
+    return [_serializar_alerta(a, clientes_map) for a in alertas]
+
+
+def resumen_por_tipo(db: Session, studio_id: int) -> dict:
+    """Conteo de alertas activas agrupadas por tipo."""
+    alertas = db.query(AlertaVencimiento).filter(
+        AlertaVencimiento.studio_id == studio_id,
+        AlertaVencimiento.resuelta_at.is_(None),
+        AlertaVencimiento.ignorada_at.is_(None),
+    ).all()
+    conteo = {
+        "vencimiento": 0, "mora": 0, "riesgo": 0,
+        "tarea_vencida": 0, "documentacion": 0, "manual": 0,
+    }
+    for a in alertas:
+        tipo = a.tipo or "vencimiento"
+        if tipo in conteo:
+            conteo[tipo] += 1
+        else:
+            conteo[tipo] = 1
+    conteo["total"] = sum(conteo.values())
+    return conteo
+
+
+def crear_alerta_manual(db: Session, studio_id: int, data: dict) -> dict:
+    """Crea una alerta manual del contador hacia un cliente."""
+    from models.portal_notificacion import PortalNotificacion
+
+    cliente_id = data["cliente_id"]
+    canal = data.get("canal", "email")
+
+    alerta = AlertaVencimiento(
+        studio_id=studio_id,
+        cliente_id=cliente_id,
+        tipo="manual",
+        origen="contador",
+        titulo=data.get("titulo", ""),
+        nivel="advertencia",
+        mensaje=data.get("mensaje", ""),
+        dias_restantes=0,
+        canal=canal,
+        tipo_vencimiento_ref=data.get("tipo_vencimiento"),
+        tipo_documento_ref=data.get("tipo_documento"),
+        documento_referencia=data.get("documento_referencia"),
+    )
+    db.add(alerta)
+    db.flush()
+
+    # Enviar por email si corresponde
+    if canal in ("email", "ambos"):
+        try:
+            _enviar_alerta_manual_email(db, alerta, studio_id)
+            alerta.sent_via_email = True
+            alerta.email_sent_at = datetime.utcnow()
+        except Exception as e:
+            logger.warning("No se pudo enviar alerta manual por email: %s", e)
+
+    # Crear notificación en el portal si corresponde
+    if canal in ("portal", "ambos"):
+        notif = PortalNotificacion(
+            studio_id=studio_id,
+            cliente_id=cliente_id,
+            tipo="alerta_manual",
+            titulo=alerta.titulo,
+            mensaje=alerta.mensaje,
+        )
+        db.add(notif)
+        alerta.sent_via_portal = True
+        alerta.portal_sent_at = datetime.utcnow()
+
+    db.commit()
+    db.refresh(alerta)
+    return _serializar_alerta(alerta, {})
+
+
+def _enviar_alerta_manual_email(db: Session, alerta: AlertaVencimiento, studio_id: int) -> None:
+    """Envía email al cliente usando el servicio de emails existente."""
+    from models.cliente import Cliente
+    from models.studio import Studio
+
+    cliente = db.query(Cliente).filter(Cliente.id == alerta.cliente_id).first()
+    if not cliente or not getattr(cliente, "email", None):
+        return
+
+    studio = db.query(Studio).filter(Studio.id == studio_id).first()
+    nombre_remitente = (studio.email_nombre_remitente or studio.nombre) if studio else "Tu estudio"
+    firma = (studio.email_firma or "") if studio else ""
+
+    cuerpo_partes = []
+    if alerta.tipo_vencimiento_ref:
+        cuerpo_partes.append(f"Obligación fiscal: {alerta.tipo_vencimiento_ref}")
+    if alerta.tipo_documento_ref and alerta.documento_referencia:
+        cuerpo_partes.append(f"Documento: {alerta.tipo_documento_ref} — {alerta.documento_referencia}")
+    elif alerta.tipo_documento_ref:
+        cuerpo_partes.append(f"Tipo de documento: {alerta.tipo_documento_ref}")
+    cuerpo_partes.append(f"\n{alerta.mensaje}")
+    if firma:
+        cuerpo_partes.append(f"\n\n{firma}")
+
+    cuerpo = "\n".join(cuerpo_partes)
+
+    try:
+        from services.email_clasificador import enviar_email_simple
+        enviar_email_simple(
+            to=cliente.email,
+            subject=alerta.titulo or "Mensaje de tu contador",
+            body=cuerpo,
+            from_name=nombre_remitente,
+        )
+    except Exception:
+        # Intentar con el servicio de notificaciones
+        from services.notificacion_service import enviar_email_notificacion
+        enviar_email_notificacion(
+            destinatario=cliente.email,
+            asunto=alerta.titulo or "Mensaje de tu contador",
+            cuerpo=cuerpo,
+        )
+
+
+def _serializar_alerta(alerta: AlertaVencimiento, clientes_map: dict) -> dict:
+    return {
+        "id": alerta.id,
+        "tipo": alerta.tipo or "vencimiento",
+        "origen": alerta.origen or "sistema",
+        "titulo": alerta.titulo,
+        "vencimiento_id": alerta.vencimiento_id,
+        "cliente_id": alerta.cliente_id,
+        "cliente_nombre": clientes_map.get(alerta.cliente_id),
+        "nivel": alerta.nivel,
+        "severidad": alerta.nivel,
+        "dias_restantes": alerta.dias_restantes,
+        "documentos_faltantes": alerta.documentos_faltantes,
+        "mensaje": alerta.mensaje,
+        "vista": alerta.vista,
+        "canal": alerta.canal,
+        "estado": "resuelta" if alerta.resuelta_at else ("ignorada" if alerta.ignorada_at else "activa"),
+        "created_at": alerta.created_at.isoformat() if alerta.created_at else None,
+        "resuelta_at": alerta.resuelta_at.isoformat() if alerta.resuelta_at else None,
+        "ignorada_at": alerta.ignorada_at.isoformat() if alerta.ignorada_at else None,
+    }
+
+
+# ─── TRIGGERS AUTOMÁTICOS ────────────────────────────────────────────────────
+
+def generar_alertas_mora(db: Session, studio_id: int) -> int:
+    """Genera alertas para clientes con cobros vencidos (mora en abono)."""
+    generadas = 0
+    try:
+        from models.abono import Cobro, EstadoCobro
+        from models.cliente import Cliente
+
+        cobros_vencidos = db.query(Cobro).join(
+            Cliente, Cobro.cliente_id == Cliente.id
+        ).filter(
+            Cliente.studio_id == studio_id,
+            Cobro.estado == EstadoCobro.vencido,
+        ).all()
+
+        for cobro in cobros_vencidos:
+            # Verificar que no exista alerta activa del mismo tipo para este cobro
+            existente = db.query(AlertaVencimiento).filter(
+                AlertaVencimiento.studio_id == studio_id,
+                AlertaVencimiento.cobro_id == cobro.id,
+                AlertaVencimiento.tipo == "mora",
+                AlertaVencimiento.resuelta_at.is_(None),
+                AlertaVencimiento.ignorada_at.is_(None),
+            ).first()
+            if existente:
+                continue
+
+            cliente = db.query(Cliente).filter(Cliente.id == cobro.cliente_id).first()
+            nombre = cliente.nombre if cliente else f"Cliente #{cobro.cliente_id}"
+            monto = getattr(cobro, "monto", 0)
+            periodo = getattr(cobro, "periodo", "")
+
+            alerta = AlertaVencimiento(
+                studio_id=studio_id,
+                cliente_id=cobro.cliente_id,
+                tipo="mora",
+                origen="sistema",
+                titulo=f"Cobro vencido — {nombre}",
+                nivel="critica",
+                mensaje=f"El cliente {nombre} tiene un cobro vencido de ${monto} correspondiente a {periodo}",
+                dias_restantes=0,
+                cobro_id=cobro.id,
+            )
+            db.add(alerta)
+            generadas += 1
+    except Exception as e:
+        logger.warning("Error generando alertas mora: %s", e)
+
+    db.commit()
+    return generadas
+
+
+def generar_alertas_riesgo(db: Session, studio_id: int, umbral: int = 70) -> int:
+    """Genera alertas para clientes con score de riesgo alto."""
+    generadas = 0
+    try:
+        from models.cliente import Cliente
+
+        clientes = db.query(Cliente).filter(
+            Cliente.studio_id == studio_id,
+            Cliente.activo == True,
+        ).all()
+
+        for cliente in clientes:
+            score = getattr(cliente, "score_riesgo", None)
+            if score is None or score < umbral:
+                continue
+
+            existente = db.query(AlertaVencimiento).filter(
+                AlertaVencimiento.studio_id == studio_id,
+                AlertaVencimiento.cliente_id == cliente.id,
+                AlertaVencimiento.tipo == "riesgo",
+                AlertaVencimiento.resuelta_at.is_(None),
+                AlertaVencimiento.ignorada_at.is_(None),
+            ).first()
+            if existente:
+                continue
+
+            risk_exp = getattr(cliente, "risk_explanation", "Score alto detectado")
+            alerta = AlertaVencimiento(
+                studio_id=studio_id,
+                cliente_id=cliente.id,
+                tipo="riesgo",
+                origen="sistema",
+                titulo=f"Score de riesgo alto — {cliente.nombre}",
+                nivel="advertencia",
+                mensaje=f"El cliente {cliente.nombre} tiene un score de riesgo de {score}/100. Motivo: {risk_exp}",
+                dias_restantes=0,
+            )
+            db.add(alerta)
+            generadas += 1
+    except Exception as e:
+        logger.warning("Error generando alertas riesgo: %s", e)
+
+    db.commit()
+    return generadas
+
+
+def generar_alertas_tareas_vencidas(db: Session, studio_id: int) -> int:
+    """Genera alertas para tareas vencidas sin completar."""
+    generadas = 0
+    try:
+        from models.tarea import EstadoTarea, Tarea
+        from models.cliente import Cliente
+
+        hoy = date.today()
+        tareas = db.query(Tarea).filter(
+            Tarea.studio_id == studio_id,
+            Tarea.estado != EstadoTarea.completada,
+            Tarea.fecha_limite < hoy,
+            Tarea.activo == True,
+        ).all()
+
+        for tarea in tareas:
+            existente = db.query(AlertaVencimiento).filter(
+                AlertaVencimiento.studio_id == studio_id,
+                AlertaVencimiento.tarea_id == tarea.id,
+                AlertaVencimiento.tipo == "tarea_vencida",
+                AlertaVencimiento.resuelta_at.is_(None),
+            ).first()
+            if existente:
+                continue
+
+            cliente_nombre = ""
+            if tarea.cliente_id:
+                cliente = db.query(Cliente).filter(Cliente.id == tarea.cliente_id).first()
+                cliente_nombre = f" del cliente {cliente.nombre}" if cliente else ""
+
+            fecha_str = tarea.fecha_limite.strftime("%d/%m/%Y") if tarea.fecha_limite else "fecha desconocida"
+            alerta = AlertaVencimiento(
+                studio_id=studio_id,
+                cliente_id=tarea.cliente_id,
+                tipo="tarea_vencida",
+                origen="sistema",
+                titulo=f"Tarea vencida — {tarea.titulo}",
+                nivel="advertencia",
+                mensaje=f"La tarea '{tarea.titulo}'{cliente_nombre} venció el {fecha_str} y sigue sin completarse",
+                dias_restantes=0,
+                tarea_id=tarea.id,
+            )
+            db.add(alerta)
+            generadas += 1
+    except Exception as e:
+        logger.warning("Error generando alertas tareas vencidas: %s", e)
+
+    db.commit()
+    return generadas
+
+
+def generar_alertas_documentacion(db: Session, studio_id: int, dias_anticipacion: int = 5) -> int:
+    """Genera alertas para clientes con documentación pendiente y vencimiento próximo."""
+    generadas = 0
+    try:
+        from models.cliente import Cliente
+        from models.vencimiento import Vencimiento, EstadoVencimiento
+        from models.documento import Documento
+
+        hoy = date.today()
+        from datetime import timedelta
+        limite = hoy + timedelta(days=dias_anticipacion)
+
+        vencimientos = db.query(Vencimiento).join(
+            Cliente, Vencimiento.cliente_id == Cliente.id
+        ).filter(
+            Cliente.studio_id == studio_id,
+            Vencimiento.estado == EstadoVencimiento.pendiente,
+            Vencimiento.fecha_vencimiento >= hoy,
+            Vencimiento.fecha_vencimiento <= limite,
+        ).all()
+
+        for venc in vencimientos:
+            # Verificar si hay documentos pendientes
+            docs_pendientes = db.query(Documento).filter(
+                Documento.cliente_id == venc.cliente_id,
+                Documento.activo == True,
+            ).filter(
+                Documento.estado_clasificacion.in_(["pendiente", "procesando"])
+            ).count()
+
+            if docs_pendientes == 0:
+                continue
+
+            existente = db.query(AlertaVencimiento).filter(
+                AlertaVencimiento.studio_id == studio_id,
+                AlertaVencimiento.vencimiento_id == venc.id,
+                AlertaVencimiento.tipo == "documentacion",
+                AlertaVencimiento.resuelta_at.is_(None),
+            ).first()
+            if existente:
+                continue
+
+            cliente = db.query(Cliente).filter(Cliente.id == venc.cliente_id).first()
+            nombre = cliente.nombre if cliente else f"Cliente #{venc.cliente_id}"
+            dias = (venc.fecha_vencimiento - hoy).days
+
+            alerta = AlertaVencimiento(
+                studio_id=studio_id,
+                cliente_id=venc.cliente_id,
+                vencimiento_id=venc.id,
+                tipo="documentacion",
+                origen="sistema",
+                titulo=f"Documentación pendiente — {nombre}",
+                nivel="critica",
+                mensaje=f"El cliente {nombre} tiene documentación pendiente y vence {venc.tipo.value} en {dias} días",
+                dias_restantes=dias,
+            )
+            db.add(alerta)
+            generadas += 1
+    except Exception as e:
+        logger.warning("Error generando alertas documentación: %s", e)
+
+    db.commit()
+    return generadas
+
+
+def generar_todos_los_triggers(db: Session, studio_id: int) -> dict:
+    """Ejecuta todos los triggers automáticos de alertas."""
+    from models.studio import Studio
+    studio = db.query(Studio).filter(Studio.id == studio_id).first()
+    umbral_riesgo = (studio.alerta_riesgo_umbral if studio else 70) or 70
+    dias_doc = (studio.alerta_documentacion_dias if studio else 5) or 5
+
+    return {
+        "mora": generar_alertas_mora(db, studio_id),
+        "riesgo": generar_alertas_riesgo(db, studio_id, umbral_riesgo),
+        "tarea_vencida": generar_alertas_tareas_vencidas(db, studio_id),
+        "documentacion": generar_alertas_documentacion(db, studio_id, dias_doc),
+        "vencimiento": len(generar_alertas(db, studio_id)),
+    }

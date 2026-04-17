@@ -5,7 +5,7 @@ from fastapi import APIRouter, Depends
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
-from auth_dependencies import solo_dueno
+from auth_dependencies import get_studio_id, solo_dueno
 from database import get_db
 from services import agent_dashboard_service
 
@@ -34,6 +34,7 @@ async def chat(
     body: DashboardChatRequest,
     db: Session = Depends(get_db),
     current_user: dict = Depends(solo_dueno),
+    studio_id: int = Depends(get_studio_id),
 ):
     """
     Endpoint del Dashboard Intelligence Agent.
@@ -45,7 +46,7 @@ async def chat(
 
     return await agent_dashboard_service.chat(
         db=db,
-        studio_id=None,
+        studio_id=studio_id,
         message=body.message,
         context=context_dict,
         conversation_history=history,

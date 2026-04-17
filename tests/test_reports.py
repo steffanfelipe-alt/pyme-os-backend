@@ -4,6 +4,7 @@ from models.alerta import AlertaVencimiento
 from models.cliente import Cliente, CondicionFiscal, TipoPersona
 from models.informe_ejecutivo import InformeEjecutivo
 from models.vencimiento import EstadoVencimiento, TipoVencimiento, Vencimiento
+from tests.conftest import _get_or_create_studio
 
 PERIODO = "2026-03"
 
@@ -15,6 +16,7 @@ def _crear_cliente(db, nombre="Empresa Test", cuit="20-12345678-6"):
         cuit_cuil=cuit,
         condicion_fiscal=CondicionFiscal.responsable_inscripto,
         activo=True,
+        studio_id=_get_or_create_studio(db),
     )
     db.add(cliente)
     db.commit()
@@ -23,8 +25,10 @@ def _crear_cliente(db, nombre="Empresa Test", cuit="20-12345678-6"):
 
 
 def _crear_vencimiento(db, cliente_id, fecha=date(2026, 3, 20)):
+    studio_id = _get_or_create_studio(db)
     venc = Vencimiento(
         cliente_id=cliente_id,
+        studio_id=studio_id,
         tipo=TipoVencimiento.iva,
         descripcion="IVA Marzo",
         fecha_vencimiento=fecha,
@@ -37,9 +41,11 @@ def _crear_vencimiento(db, cliente_id, fecha=date(2026, 3, 20)):
 
 
 def _crear_alerta_critica(db, vencimiento_id, cliente_id):
+    studio_id = _get_or_create_studio(db)
     alerta = AlertaVencimiento(
         vencimiento_id=vencimiento_id,
         cliente_id=cliente_id,
+        studio_id=studio_id,
         nivel="critica",
         dias_restantes=1,
         documentos_faltantes=["factura"],

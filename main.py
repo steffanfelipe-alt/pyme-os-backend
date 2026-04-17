@@ -2,6 +2,9 @@ import logging
 import os
 import traceback
 
+from dotenv import load_dotenv
+load_dotenv()
+
 from apscheduler.schedulers.background import BackgroundScheduler
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
@@ -20,12 +23,23 @@ import models.assistant_conversation  # noqa: F401
 import models.email_log  # noqa: F401
 import models.facturacion  # noqa: F401
 import models.automatizacion_python  # noqa: F401
+import models.portal_token  # noqa: F401
+import models.solicitud_documento  # noqa: F401
+import models.abono  # noqa: F401
+import models.config_honorarios  # noqa: F401
+import models.config_calendario  # noqa: F401
+import models.vencimiento_sugerido  # noqa: F401
+import models.portal_usuario  # noqa: F401
+import models.portal_notificacion  # noqa: F401
+import models.onboarding_pasos  # noqa: F401
 
 from routers import (
-    agent_assistant, agent_dashboard, alerts, auth_router, automatizaciones, automatizaciones_python,
+    agent_assistant, agent_dashboard, alertas, alerts, auth_router, automatizaciones, automatizaciones_python,
     clientes, configuracion, conocimiento, dashboard, documentos, emails, empleados, facturacion,
-    plantillas, procesos, profitability, reportes, reports, risk, sop_asistido, tareas,
-    vencimientos, webhooks,
+    onboarding, plantillas, procesos, profitability, reportes, reports, risk, sop_asistido, tareas,
+    vencimientos, webhooks, portal, portal_auth, solicitudes, abonos,
+    config_perfil, config_facturacion, config_honorarios_router, config_cobranza,
+    config_notificaciones, config_calendario_router, config_sistema,
 )
 from modules.asistente.router import router as asistente_router
 
@@ -90,6 +104,19 @@ app.include_router(webhooks.router)
 app.include_router(facturacion.router)
 app.include_router(configuracion.router)
 app.include_router(automatizaciones_python.router)
+app.include_router(portal.router)
+app.include_router(portal_auth.router)
+app.include_router(solicitudes.router)
+app.include_router(abonos.router)
+app.include_router(alertas.router)
+app.include_router(onboarding.router)
+app.include_router(config_perfil.router)
+app.include_router(config_facturacion.router)
+app.include_router(config_honorarios_router.router)
+app.include_router(config_cobranza.router)
+app.include_router(config_notificaciones.router)
+app.include_router(config_calendario_router.router)
+app.include_router(config_sistema.router)
 
 # --- Static files (SOPs, documentos, adjuntos) ---
 # Se crean los directorios si no existen para evitar error al montar

@@ -40,8 +40,8 @@ def _descripcion(template: str, mes: int, año: int) -> str:
 
 # --- CRUD ---
 
-def crear_plantilla(db: Session, data: PlantillaCreate) -> PlantillaVencimiento:
-    plantilla = PlantillaVencimiento(**data.model_dump())
+def crear_plantilla(db: Session, data: PlantillaCreate, studio_id: int) -> PlantillaVencimiento:
+    plantilla = PlantillaVencimiento(**data.model_dump(), studio_id=studio_id)
     db.add(plantilla)
     db.commit()
     db.refresh(plantilla)
@@ -52,8 +52,11 @@ def listar_plantillas(
     db: Session,
     condicion_fiscal: Optional[CondicionFiscal] = None,
     activo: Optional[bool] = True,
+    studio_id: int = None,
 ) -> list[PlantillaVencimiento]:
     query = db.query(PlantillaVencimiento)
+    if studio_id is not None:
+        query = query.filter(PlantillaVencimiento.studio_id == studio_id)
     if condicion_fiscal is not None:
         query = query.filter(PlantillaVencimiento.condicion_fiscal == condicion_fiscal)
     if activo is not None:
@@ -61,15 +64,18 @@ def listar_plantillas(
     return query.all()
 
 
-def obtener_plantilla(db: Session, plantilla_id: int) -> PlantillaVencimiento:
-    p = db.query(PlantillaVencimiento).filter(PlantillaVencimiento.id == plantilla_id).first()
+def obtener_plantilla(db: Session, plantilla_id: int, studio_id: int = None) -> PlantillaVencimiento:
+    filtros = [PlantillaVencimiento.id == plantilla_id]
+    if studio_id is not None:
+        filtros.append(PlantillaVencimiento.studio_id == studio_id)
+    p = db.query(PlantillaVencimiento).filter(*filtros).first()
     if not p:
         raise HTTPException(status_code=404, detail="Plantilla no encontrada")
     return p
 
 
-def actualizar_plantilla(db: Session, plantilla_id: int, data: PlantillaUpdate) -> PlantillaVencimiento:
-    plantilla = obtener_plantilla(db, plantilla_id)
+def actualizar_plantilla(db: Session, plantilla_id: int, data: PlantillaUpdate, studio_id: int = None) -> PlantillaVencimiento:
+    plantilla = obtener_plantilla(db, plantilla_id, studio_id)
     for campo, valor in data.model_dump(exclude_unset=True).items():
         setattr(plantilla, campo, valor)
     db.commit()
@@ -77,16 +83,18 @@ def actualizar_plantilla(db: Session, plantilla_id: int, data: PlantillaUpdate) 
     return plantilla
 
 
-def eliminar_plantilla(db: Session, plantilla_id: int) -> None:
-    plantilla = obtener_plantilla(db, plantilla_id)
+def eliminar_plantilla(db: Session, plantilla_id: int, studio_id: int = None) -> None:
+    plantilla = obtener_plantilla(db, plantilla_id, studio_id)
     plantilla.activo = False
     db.commit()
 
 
 # --- Generación de vencimientos ---
 
-def aplicar_plantillas_a_cliente(db: Session, cliente_id: int) -> dict:
-    cliente = db.query(Cliente).filter(Cliente.id == cliente_id, Cliente.activo == True).first()
+def aplicar_plantillas_a_cliente(db: Session, cliente_id: int, studio_id: int) -> dict:
+    cliente = db.query(Cliente).filter(
+        Cliente.id == cliente_id, Cliente.studio_id == studio_id, Cliente.activo == True
+    ).first()
     if not cliente:
         raise HTTPException(status_code=404, detail="Cliente no encontrado")
 
@@ -114,7 +122,7 @@ def aplicar_plantillas_a_cliente(db: Session, cliente_id: int) -> dict:
                 mes = mes_offset % 12 + 1
                 fecha = _fecha_segura(año, mes, dia)
                 descripcion = _descripcion(plantilla.descripcion_template, mes, año)
-                _crear_vencimiento_si_no_existe(db, cliente_id, plantilla, fecha, descripcion)
+                _crear_vencimiento_si_no_existe(db, cliente_id, plantilla, fecha, descripcion, studio_id)
                 generados += 1
 
         elif plantilla.recurrencia == RecurrenciaPlantilla.bimestral:
@@ -124,7 +132,7 @@ def aplicar_plantillas_a_cliente(db: Session, cliente_id: int) -> dict:
                 mes = mes_offset % 12 + 1
                 fecha = _fecha_segura(año, mes, dia)
                 descripcion = _descripcion(plantilla.descripcion_template, mes, año)
-                _crear_vencimiento_si_no_existe(db, cliente_id, plantilla, fecha, descripcion)
+                _crear_vencimiento_si_no_existe(db, cliente_id, plantilla, fecha, descripcion, studio_id)
                 generados += 1
 
         elif plantilla.recurrencia == RecurrenciaPlantilla.cuatrimestral:
@@ -134,7 +142,7 @@ def aplicar_plantillas_a_cliente(db: Session, cliente_id: int) -> dict:
                 mes = mes_offset % 12 + 1
                 fecha = _fecha_segura(año, mes, dia)
                 descripcion = _descripcion(plantilla.descripcion_template, mes, año)
-                _crear_vencimiento_si_no_existe(db, cliente_id, plantilla, fecha, descripcion)
+                _crear_vencimiento_si_no_existe(db, cliente_id, plantilla, fecha, descripcion, studio_id)
                 generados += 1
 
         elif plantilla.recurrencia == RecurrenciaPlantilla.anual:
@@ -142,7 +150,7 @@ def aplicar_plantillas_a_cliente(db: Session, cliente_id: int) -> dict:
             año = hoy.year if hoy.month <= mes else hoy.year + 1
             fecha = _fecha_segura(año, mes, dia)
             descripcion = _descripcion(plantilla.descripcion_template, mes, año)
-            _crear_vencimiento_si_no_existe(db, cliente_id, plantilla, fecha, descripcion)
+            _crear_vencimiento_si_no_existe(db, cliente_id, plantilla, fecha, descripcion, studio_id)
             generados += 1
 
     cliente.plantilla_aplicada = True
@@ -158,14 +166,17 @@ def _crear_vencimiento_si_no_existe(
     plantilla: PlantillaVencimiento,
     fecha: date,
     descripcion: str,
+    studio_id: int,
 ) -> None:
     existente = db.query(Vencimiento).filter(
         Vencimiento.cliente_id == cliente_id,
+        Vencimiento.studio_id == studio_id,
         Vencimiento.tipo == plantilla.tipo,
         Vencimiento.fecha_vencimiento == fecha,
     ).first()
     if not existente:
         venc = Vencimiento(
+            studio_id=studio_id,
             cliente_id=cliente_id,
             tipo=plantilla.tipo,
             descripcion=descripcion,

@@ -5,7 +5,7 @@ from typing import Optional
 
 from pydantic import BaseModel, EmailStr, computed_field, field_validator
 
-from models.cliente import CondicionFiscal, TipoPersona
+from models.cliente import CondicionFiscal, TipoCliente, TipoPersona
 from schemas.documento import DocumentoResponse
 
 
@@ -31,6 +31,8 @@ class ClienteCreate(BaseModel):
     plantilla_aplicada: bool = False
     honorarios_mensuales: Optional[Decimal] = None
     satisfaccion: Optional[int] = None
+    tipo_cliente: TipoCliente = TipoCliente.otro
+    honorario_base: Optional[Decimal] = Decimal("0")
 
     @field_validator("cuit_cuil")
     @classmethod
@@ -67,6 +69,8 @@ class ClienteUpdate(BaseModel):
     honorarios_mensuales: Optional[Decimal] = None
     satisfaccion: Optional[int] = None
     activo: Optional[bool] = None
+    tipo_cliente: Optional[TipoCliente] = None
+    honorario_base: Optional[Decimal] = None
 
 
 class ClienteResponse(BaseModel):
@@ -86,6 +90,8 @@ class ClienteResponse(BaseModel):
     honorarios_mensuales: Optional[Decimal]
     satisfaccion: Optional[int]
     activo: bool
+    tipo_cliente: TipoCliente = TipoCliente.otro
+    honorario_base: Optional[Decimal] = Decimal("0")
     created_at: datetime
     updated_at: datetime
 
@@ -161,3 +167,10 @@ class FichaClienteResponse(BaseModel):
     tareas: dict
     estado_alerta: EstadoAlerta
     documentos: list[DocumentoResponse] = []
+    # Nuevos campos del spec Ficha del Cliente
+    resumen: Optional[dict] = None
+    alertas_activas: Optional[list[dict]] = None
+    abono: Optional[dict] = None
+    historial_cobros: Optional[list[dict]] = None
+    portal: Optional[dict] = None
+    notas: Optional[str] = None

@@ -1,5 +1,5 @@
 from datetime import date, datetime
-from typing import Optional
+from typing import List, Optional
 
 from pydantic import BaseModel
 
@@ -31,6 +31,13 @@ class TareaUpdate(BaseModel):
     horas_reales: Optional[float] = None
     notas: Optional[str] = None
     activo: Optional[bool] = None
+    es_urgente: Optional[bool] = None
+    es_importante: Optional[bool] = None
+
+
+class PrioridadEisenhowerUpdate(BaseModel):
+    es_urgente: bool
+    es_importante: bool
 
 
 class TareaResponse(BaseModel):
@@ -50,7 +57,17 @@ class TareaResponse(BaseModel):
     horas_reales: Optional[float]
     notas: Optional[str]
     activo: bool
+    es_urgente: bool = False
+    es_importante: bool = False
     created_at: datetime
     updated_at: datetime
 
     model_config = {"from_attributes": True}
+
+
+class CuadranteEisenhower(BaseModel):
+    q1_urgente_importante: List[TareaResponse]
+    q2_no_urgente_importante: List[TareaResponse]
+    q3_urgente_no_importante: List[TareaResponse]
+    q4_no_urgente_no_importante: List[TareaResponse]
+    sin_clasificar: List[TareaResponse]

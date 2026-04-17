@@ -43,6 +43,7 @@ class ProcesoTemplate(Base):
     __tablename__ = "proceso_templates"
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    studio_id: Mapped[int] = mapped_column(Integer, ForeignKey("studios.id"), nullable=False, index=True)
     nombre: Mapped[str] = mapped_column(String(255), nullable=False)
     descripcion: Mapped[str | None] = mapped_column(Text, nullable=True)
     tipo: Mapped[TipoProceso] = mapped_column(Enum(TipoProceso), nullable=False)
@@ -76,6 +77,7 @@ class ProcesoInstancia(Base):
     __tablename__ = "proceso_instancias"
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    studio_id: Mapped[int] = mapped_column(Integer, ForeignKey("studios.id"), nullable=False, index=True)
     template_id: Mapped[int] = mapped_column(Integer, ForeignKey("proceso_templates.id"), nullable=False)
     cliente_id: Mapped[int | None] = mapped_column(Integer, ForeignKey("clientes.id"), nullable=True)
     vencimiento_id: Mapped[int | None] = mapped_column(Integer, ForeignKey("vencimientos.id"), nullable=True)
@@ -120,6 +122,7 @@ class Automatizacion(Base):
     __tablename__ = "automatizaciones"
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    studio_id: Mapped[int] = mapped_column(Integer, ForeignKey("studios.id"), nullable=False, index=True)
     template_id: Mapped[int] = mapped_column(Integer, ForeignKey("proceso_templates.id"), unique=True, nullable=False)
     flujo_json: Mapped[dict | None] = mapped_column(JSON, nullable=True)
     analisis_pasos: Mapped[dict | None] = mapped_column(JSON, nullable=True)

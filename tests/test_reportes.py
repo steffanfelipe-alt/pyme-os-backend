@@ -9,7 +9,7 @@ from models.cliente import Cliente, TipoPersona, CondicionFiscal
 from models.empleado import Empleado, RolEmpleado
 from models.tarea import Tarea, TipoTarea, PrioridadTarea, EstadoTarea
 from models.vencimiento import Vencimiento, TipoVencimiento, EstadoVencimiento
-from tests.conftest import _crear_token_con_rol
+from tests.conftest import _crear_token_con_rol, _get_or_create_studio
 
 
 PERIODO_ACTUAL = date.today().strftime("%Y-%m")
@@ -62,7 +62,8 @@ def test_reporte_carga_vacio(client, headers_dueno):
 
 
 def test_reporte_carga_con_datos(client, db, headers_dueno, cliente_test):
-    emp = Empleado(nombre="María Reportes", email="maria_rep@estudio.com", rol=RolEmpleado.contador, activo=True)
+    studio_id = _get_or_create_studio(db)
+    emp = Empleado(nombre="María Reportes", email="maria_rep@estudio.com", rol=RolEmpleado.contador, activo=True, studio_id=studio_id)
     db.add(emp)
     db.flush()
 
@@ -70,6 +71,7 @@ def test_reporte_carga_con_datos(client, db, headers_dueno, cliente_test):
     for i in range(12):
         t = Tarea(
             cliente_id=cliente_test.id,
+            studio_id=studio_id,
             empleado_id=emp.id,
             titulo=f"Tarea {i}",
             tipo=TipoTarea.tarea,
@@ -90,11 +92,12 @@ def test_reporte_carga_con_datos(client, db, headers_dueno, cliente_test):
 
 
 def test_reporte_carga_nivel_baja(client, db, headers_dueno, cliente_test):
-    emp = Empleado(nombre="Lucas Carga", email="lucas_carga@estudio.com", rol=RolEmpleado.contador, activo=True)
+    studio_id = _get_or_create_studio(db)
+    emp = Empleado(nombre="Lucas Carga", email="lucas_carga@estudio.com", rol=RolEmpleado.contador, activo=True, studio_id=studio_id)
     db.add(emp)
     db.flush()
     t = Tarea(
-        cliente_id=cliente_test.id, empleado_id=emp.id, titulo="Única",
+        cliente_id=cliente_test.id, studio_id=studio_id, empleado_id=emp.id, titulo="Única",
         tipo=TipoTarea.tarea, prioridad=PrioridadTarea.media, estado=EstadoTarea.pendiente, activo=True,
     )
     db.add(t)
@@ -138,6 +141,7 @@ def test_rentabilidad_cliente_sin_honorario(client, db, headers_dueno):
         tipo_persona=TipoPersona.juridica, nombre="Sin Honorario SRL",
         cuit_cuil="20-99999999-0", condicion_fiscal=CondicionFiscal.responsable_inscripto,
         honorarios_mensuales=None, activo=True,
+        studio_id=_get_or_create_studio(db),
     )
     db.add(cliente_sin)
     db.commit()
@@ -165,19 +169,19 @@ def test_reporte_vencimientos_con_alerta(client, db, headers_dueno, cliente_test
     hoy = date.today()
     # Vencimiento en 3 días → alerta
     v_alerta = Vencimiento(
-        cliente_id=cliente_test.id, tipo=TipoVencimiento.iva,
+        cliente_id=cliente_test.id, studio_id=cliente_test.studio_id, tipo=TipoVencimiento.iva,
         descripcion="IVA Alerta", fecha_vencimiento=hoy + timedelta(days=3),
         estado=EstadoVencimiento.pendiente,
     )
     # Vencimiento en 20 días → sin alerta
     v_normal = Vencimiento(
-        cliente_id=cliente_test.id, tipo=TipoVencimiento.iva,
+        cliente_id=cliente_test.id, studio_id=cliente_test.studio_id, tipo=TipoVencimiento.iva,
         descripcion="IVA Normal", fecha_vencimiento=hoy + timedelta(days=20),
         estado=EstadoVencimiento.pendiente,
     )
     # Vencimiento cumplido en 3 días → no alerta (ya presentado)
     v_cumplido = Vencimiento(
-        cliente_id=cliente_test.id, tipo=TipoVencimiento.iva,
+        cliente_id=cliente_test.id, studio_id=cliente_test.studio_id, tipo=TipoVencimiento.iva,
         descripcion="IVA Cumplido", fecha_vencimiento=hoy + timedelta(days=2),
         estado=EstadoVencimiento.cumplido,
     )
@@ -200,11 +204,11 @@ def test_reporte_vencimientos_con_alerta(client, db, headers_dueno, cliente_test
 def test_reporte_vencimientos_resumen(client, db, headers_dueno, cliente_test):
     hoy = date.today()
     db.add_all([
-        Vencimiento(cliente_id=cliente_test.id, tipo=TipoVencimiento.iva, descripcion="P1",
+        Vencimiento(cliente_id=cliente_test.id, studio_id=cliente_test.studio_id, tipo=TipoVencimiento.iva, descripcion="P1",
                     fecha_vencimiento=hoy + timedelta(days=5), estado=EstadoVencimiento.pendiente),
-        Vencimiento(cliente_id=cliente_test.id, tipo=TipoVencimiento.iva, descripcion="C1",
+        Vencimiento(cliente_id=cliente_test.id, studio_id=cliente_test.studio_id, tipo=TipoVencimiento.iva, descripcion="C1",
                     fecha_vencimiento=hoy + timedelta(days=10), estado=EstadoVencimiento.cumplido),
-        Vencimiento(cliente_id=cliente_test.id, tipo=TipoVencimiento.iva, descripcion="V1",
+        Vencimiento(cliente_id=cliente_test.id, studio_id=cliente_test.studio_id, tipo=TipoVencimiento.iva, descripcion="V1",
                     fecha_vencimiento=hoy - timedelta(days=5), estado=EstadoVencimiento.vencido),
     ])
     db.commit()
@@ -219,7 +223,7 @@ def test_reporte_vencimientos_resumen(client, db, headers_dueno, cliente_test):
 def test_reporte_vencimientos_filtro_estado(client, db, headers_dueno, cliente_test):
     hoy = date.today()
     db.add(Vencimiento(
-        cliente_id=cliente_test.id, tipo=TipoVencimiento.iva, descripcion="Filtrado",
+        cliente_id=cliente_test.id, studio_id=cliente_test.studio_id, tipo=TipoVencimiento.iva, descripcion="Filtrado",
         fecha_vencimiento=hoy + timedelta(days=5), estado=EstadoVencimiento.pendiente,
     ))
     db.commit()
@@ -292,6 +296,7 @@ def test_config_incluye_nombre_y_email(client, headers_dueno):
 def test_export_vencimientos_csv(client, db, headers_dueno, cliente_test):
     venc = Vencimiento(
         cliente_id=cliente_test.id,
+        studio_id=cliente_test.studio_id,
         tipo=TipoVencimiento.iva,
         descripcion="IVA test",
         fecha_vencimiento=date.today(),

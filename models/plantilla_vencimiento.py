@@ -1,7 +1,7 @@
 import enum
 from datetime import datetime
 
-from sqlalchemy import Boolean, DateTime, Enum, Integer, String, func
+from sqlalchemy import Boolean, DateTime, Enum, ForeignKey, Integer, String, func
 from sqlalchemy import JSON
 from sqlalchemy.orm import Mapped, mapped_column
 
@@ -21,6 +21,7 @@ class PlantillaVencimiento(Base):
     __tablename__ = "plantillas_vencimiento"
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    studio_id: Mapped[int] = mapped_column(Integer, ForeignKey("studios.id"), nullable=False, index=True)
     condicion_fiscal: Mapped[CondicionFiscal] = mapped_column(Enum(CondicionFiscal), nullable=False)
     tipo: Mapped[TipoVencimiento] = mapped_column(Enum(TipoVencimiento), nullable=False)
     descripcion_template: Mapped[str] = mapped_column(String(255), nullable=False)

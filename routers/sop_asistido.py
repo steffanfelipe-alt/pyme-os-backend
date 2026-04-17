@@ -3,7 +3,7 @@ from typing import Optional
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 
-from auth_dependencies import require_rol
+from auth_dependencies import get_studio_id, require_rol
 from database import get_db
 from models.sop_documento import AreaSop, EstadoSop
 from schemas.automatizacion import AutomatizacionResponse
@@ -28,6 +28,7 @@ async def generar_sop_desde_descripcion(
     data: GenerarSopRequest,
     db: Session = Depends(get_db),
     current_user: dict = Depends(require_rol("dueno", "contador")),
+    studio_id: int = Depends(get_studio_id),
 ):
     """Genera un SOP en estado borrador desde una descripción informal en lenguaje natural."""
     if not data.descripcion.strip():
@@ -37,6 +38,7 @@ async def generar_sop_desde_descripcion(
         data.descripcion,
         data.area,
         current_user.get("empleado_id"),
+        studio_id,
     )
     return _sop_con_pasos_y_revisiones(db, sop)
 
@@ -47,9 +49,10 @@ async def generar_sop_desde_descripcion(
 def listar_biblioteca(
     db: Session = Depends(get_db),
     current_user: dict = Depends(require_rol("dueno", "contador", "administrativo", "rrhh")),
+    studio_id: int = Depends(get_studio_id),
 ):
     """Lista todos los SOPs activos con formato simplificado. Visible para todo el equipo."""
-    return sop_asistido_service.listar_biblioteca(db)
+    return sop_asistido_service.listar_biblioteca(db, studio_id)
 
 
 # ─── CRUD ────────────────────────────────────────────────────────────────────
@@ -59,9 +62,10 @@ def crear_sop(
     data: SopDocumentoCreate,
     db: Session = Depends(get_db),
     current_user: dict = Depends(require_rol("dueno", "contador")),
+    studio_id: int = Depends(get_studio_id),
 ):
     """Crea un SOP en estado borrador con sus pasos."""
-    sop = sop_asistido_service.crear_sop(db, data, current_user.get("empleado_id"))
+    sop = sop_asistido_service.crear_sop(db, data, current_user.get("empleado_id"), studio_id)
     return _sop_con_pasos_y_revisiones(db, sop)
 
 
@@ -71,6 +75,7 @@ def listar_sops(
     estado: Optional[EstadoSop] = None,
     db: Session = Depends(get_db),
     current_user: dict = Depends(require_rol("dueno", "contador", "administrativo", "rrhh")),
+    studio_id: int = Depends(get_studio_id),
 ):
     """Lista SOPs con filtros opcionales. Activos visibles a todos; borradores/archivados solo al creador/responsable."""
     sops = sop_asistido_service.listar_sops_con_visibilidad(
@@ -78,6 +83,7 @@ def listar_sops(
         empleado_id=current_user.get("empleado_id"),
         area=area,
         estado=estado,
+        studio_id=studio_id,
     )
     return [_sop_con_pasos_y_revisiones(db, s) for s in sops]
 

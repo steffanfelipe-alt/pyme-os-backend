@@ -10,7 +10,7 @@ from typing import Optional
 from fastapi import HTTPException
 from sqlalchemy.orm import Session
 
-from models.cliente import Cliente
+from models.cliente import Cliente, TipoCliente
 from models.empleado import Empleado
 from models.proceso import Automatizacion, EstadoRevisionAutomatizacion, ProcesoInstancia, ProcesoPasoInstancia, ProcesoPasoTemplate, ProcesoTemplate, EstadoInstancia
 from models.sop_documento import EstadoSop, SopDocumento
@@ -104,10 +104,13 @@ def actualizar_umbral_optimizador(db: Session, umbral: int) -> dict:
 
 # ─── Reporte 1: Carga por empleado ───────────────────────────────────────────
 
-def reporte_carga(db: Session, periodo: Optional[str]) -> dict:
+def reporte_carga(db: Session, periodo: Optional[str], studio_id: int = None) -> dict:
     primer_dia, ultimo_dia, periodo_str = _parse_periodo(periodo)
 
-    empleados = db.query(Empleado).filter(Empleado.activo == True).all()
+    emp_filtros = [Empleado.activo == True]
+    if studio_id is not None:
+        emp_filtros.append(Empleado.studio_id == studio_id)
+    empleados = db.query(Empleado).filter(*emp_filtros).all()
     resultado = []
 
     for emp in empleados:
@@ -163,7 +166,7 @@ def reporte_carga(db: Session, periodo: Optional[str]) -> dict:
 
 # ─── Reporte 2: Rentabilidad por cliente ─────────────────────────────────────
 
-def reporte_rentabilidad(db: Session, periodo: Optional[str]) -> dict:
+def reporte_rentabilidad(db: Session, periodo: Optional[str], studio_id: int = None) -> dict:
     primer_dia, ultimo_dia, periodo_str = _parse_periodo(periodo)
     config = _obtener_o_crear_config(db)
 
@@ -176,21 +179,27 @@ def reporte_rentabilidad(db: Session, periodo: Optional[str]) -> dict:
         }
 
     tarifa = float(config.tarifa_hora_pesos)
-    clientes = db.query(Cliente).filter(Cliente.activo == True).all()
+    cli_filtros = [Cliente.activo == True]
+    if studio_id is not None:
+        cli_filtros.append(Cliente.studio_id == studio_id)
+    clientes = db.query(Cliente).filter(*cli_filtros).all()
 
     # Índice: cliente_id → horas reales del mes (desde proceso_pasos_instancia)
     # JOIN: ProcesoPasoInstancia → ProcesoInstancia (por instancia_id) → cliente_id
     # Filtro: fecha_fin del paso dentro del período
     horas_por_cliente: dict[int, float] = {}
 
+    inst_filtros = [
+        ProcesoInstancia.cliente_id.isnot(None),
+        ProcesoInstancia.fecha_fin.isnot(None),
+        ProcesoInstancia.fecha_fin >= datetime.combine(primer_dia, datetime.min.time()),
+        ProcesoInstancia.fecha_fin <= datetime.combine(ultimo_dia, datetime.max.time()),
+    ]
+    if studio_id is not None:
+        inst_filtros.append(ProcesoInstancia.studio_id == studio_id)
     instancias_del_periodo = (
         db.query(ProcesoInstancia)
-        .filter(
-            ProcesoInstancia.cliente_id.isnot(None),
-            ProcesoInstancia.fecha_fin.isnot(None),
-            ProcesoInstancia.fecha_fin >= datetime.combine(primer_dia, datetime.min.time()),
-            ProcesoInstancia.fecha_fin <= datetime.combine(ultimo_dia, datetime.max.time()),
-        )
+        .filter(*inst_filtros)
         .all()
     )
 
@@ -243,16 +252,22 @@ def reporte_rentabilidad(db: Session, periodo: Optional[str]) -> dict:
 
 # ─── Reporte 3: Vencimientos del período ─────────────────────────────────────
 
-def reporte_vencimientos(db: Session, periodo: Optional[str], estado: Optional[EstadoVencimiento]) -> dict:
+def reporte_vencimientos(db: Session, periodo: Optional[str], estado: Optional[EstadoVencimiento], studio_id: int = None) -> dict:
     primer_dia, ultimo_dia, periodo_str = _parse_periodo(periodo)
     hoy = date.today()
 
-    clientes_idx = {c.id: c.nombre for c in db.query(Cliente).all()}
+    cli_filtros = []
+    if studio_id is not None:
+        cli_filtros.append(Cliente.studio_id == studio_id)
+    clientes_idx = {c.id: c.nombre for c in db.query(Cliente).filter(*cli_filtros).all()}
 
-    query = db.query(Vencimiento).filter(
+    venc_filtros = [
         Vencimiento.fecha_vencimiento >= primer_dia,
         Vencimiento.fecha_vencimiento <= ultimo_dia,
-    )
+    ]
+    if studio_id is not None:
+        venc_filtros.append(Vencimiento.studio_id == studio_id)
+    query = db.query(Vencimiento).filter(*venc_filtros)
     if estado is not None:
         query = query.filter(Vencimiento.estado == estado)
 
@@ -296,12 +311,18 @@ def reporte_vencimientos(db: Session, periodo: Optional[str], estado: Optional[E
 
 # ─── Reporte 4: Eficiencia de procesos ───────────────────────────────────────
 
-def reporte_procesos(db: Session, periodo: Optional[str]) -> dict:
+def reporte_procesos(db: Session, periodo: Optional[str], studio_id: int = None) -> dict:
     primer_dia, ultimo_dia, periodo_str = _parse_periodo(periodo)
     config = _obtener_o_crear_config(db)
 
-    templates = db.query(ProcesoTemplate).filter(ProcesoTemplate.activo == True).all()
-    empleados_idx = {e.id: e.nombre for e in db.query(Empleado).all()}
+    tmpl_filtros = [ProcesoTemplate.activo == True]
+    if studio_id is not None:
+        tmpl_filtros.append(ProcesoTemplate.studio_id == studio_id)
+    templates = db.query(ProcesoTemplate).filter(*tmpl_filtros).all()
+    emp_filtros = [Empleado.activo == True]
+    if studio_id is not None:
+        emp_filtros.append(Empleado.studio_id == studio_id)
+    empleados_idx = {e.id: e.nombre for e in db.query(Empleado).filter(*emp_filtros).all()}
 
     resultado = []
     for template in templates:
@@ -390,13 +411,16 @@ def reporte_procesos(db: Session, periodo: Optional[str]) -> dict:
 
 # ─── Resumen ejecutivo ────────────────────────────────────────────────────────
 
-def reporte_resumen(db: Session, periodo: Optional[str]) -> dict:
+def reporte_resumen(db: Session, periodo: Optional[str], studio_id: int = None) -> dict:
     _, _, periodo_str = _parse_periodo(periodo)
     hoy = date.today()
     primer_dia, ultimo_dia, _ = _parse_periodo(periodo)
 
     # Carga — empleados en alta
-    empleados = db.query(Empleado).filter(Empleado.activo == True).all()
+    emp_filtros = [Empleado.activo == True]
+    if studio_id is not None:
+        emp_filtros.append(Empleado.studio_id == studio_id)
+    empleados = db.query(Empleado).filter(*emp_filtros).all()
     empleados_en_riesgo = 0
     empleado_mas_cargado = None
     max_pendientes = -1
@@ -414,10 +438,13 @@ def reporte_resumen(db: Session, periodo: Optional[str]) -> dict:
             empleado_mas_cargado = f"{emp.nombre} — {pendientes} tareas"
 
     # Vencimientos en riesgo
-    vencimientos_periodo = db.query(Vencimiento).filter(
+    venc_filtros = [
         Vencimiento.fecha_vencimiento >= primer_dia,
         Vencimiento.fecha_vencimiento <= ultimo_dia,
-    ).all()
+    ]
+    if studio_id is not None:
+        venc_filtros.append(Vencimiento.studio_id == studio_id)
+    vencimientos_periodo = db.query(Vencimiento).filter(*venc_filtros).all()
     en_riesgo_venc = sum(
         1 for v in vencimientos_periodo
         if (v.fecha_vencimiento - hoy).days <= 7 and v.estado != EstadoVencimiento.cumplido
@@ -430,19 +457,25 @@ def reporte_resumen(db: Session, periodo: Optional[str]) -> dict:
     config = db.query(StudioConfig).first()
     if config and config.tarifa_hora_pesos:
         tarifa = float(config.tarifa_hora_pesos)
-        clientes = db.query(Cliente).filter(Cliente.activo == True).all()
+        cli_filtros = [Cliente.activo == True]
+        if studio_id is not None:
+            cli_filtros.append(Cliente.studio_id == studio_id)
+        clientes = db.query(Cliente).filter(*cli_filtros).all()
         peor_margen_pct = None
 
         for cliente in clientes:
             if not cliente.honorarios_mensuales:
                 continue
             honorario = float(cliente.honorarios_mensuales)
-            instancias = db.query(ProcesoInstancia).filter(
+            inst_filtros = [
                 ProcesoInstancia.cliente_id == cliente.id,
                 ProcesoInstancia.fecha_fin.isnot(None),
                 ProcesoInstancia.fecha_fin >= datetime.combine(primer_dia, datetime.min.time()),
                 ProcesoInstancia.fecha_fin <= datetime.combine(ultimo_dia, datetime.max.time()),
-            ).all()
+            ]
+            if studio_id is not None:
+                inst_filtros.append(ProcesoInstancia.studio_id == studio_id)
+            instancias = db.query(ProcesoInstancia).filter(*inst_filtros).all()
             minutos = 0
             for inst in instancias:
                 pasos = db.query(ProcesoPasoInstancia).filter(
@@ -464,15 +497,21 @@ def reporte_resumen(db: Session, periodo: Optional[str]) -> dict:
     mayor_desvio = None
     max_desvio = -1
 
-    templates = db.query(ProcesoTemplate).filter(ProcesoTemplate.activo == True).all()
+    tmpl_filtros2 = [ProcesoTemplate.activo == True]
+    if studio_id is not None:
+        tmpl_filtros2.append(ProcesoTemplate.studio_id == studio_id)
+    templates = db.query(ProcesoTemplate).filter(*tmpl_filtros2).all()
     for template in templates:
-        instancias = db.query(ProcesoInstancia).filter(
+        inst_f2 = [
             ProcesoInstancia.template_id == template.id,
             ProcesoInstancia.estado == EstadoInstancia.completado,
             ProcesoInstancia.fecha_fin.isnot(None),
             ProcesoInstancia.fecha_fin >= datetime.combine(primer_dia, datetime.min.time()),
             ProcesoInstancia.fecha_fin <= datetime.combine(ultimo_dia, datetime.max.time()),
-        ).all()
+        ]
+        if studio_id is not None:
+            inst_f2.append(ProcesoInstancia.studio_id == studio_id)
+        instancias = db.query(ProcesoInstancia).filter(*inst_f2).all()
         if len(instancias) < 5:
             continue
         pasos_t = db.query(ProcesoPasoTemplate).filter(ProcesoPasoTemplate.template_id == template.id).all()
@@ -498,12 +537,13 @@ def reporte_resumen(db: Session, periodo: Optional[str]) -> dict:
                 max_desvio = desvio
                 mayor_desvio = {"proceso": template.nombre, "desvio_pct": round(desvio, 1)}
 
-    automatizaciones_pendientes = db.query(Automatizacion).filter(
-        Automatizacion.estado_revision == EstadoRevisionAutomatizacion.pendiente
-    ).count()
+    auto_filtros = [Automatizacion.estado_revision == EstadoRevisionAutomatizacion.pendiente]
+    if studio_id is not None:
+        auto_filtros.append(Automatizacion.studio_id == studio_id)
+    automatizaciones_pendientes = db.query(Automatizacion).filter(*auto_filtros).count()
 
     # Cobertura de SOPs
-    cobertura_sops = _calcular_cobertura_sops(db)
+    cobertura_sops = _calcular_cobertura_sops(db, studio_id)
 
     return {
         "periodo": periodo_str,
@@ -528,22 +568,25 @@ def reporte_resumen(db: Session, periodo: Optional[str]) -> dict:
     }
 
 
-def _calcular_cobertura_sops(db: Session) -> dict:
+def _calcular_cobertura_sops(db: Session, studio_id: int = None) -> dict:
     """Calcula cobertura de SOPs sobre procesos activos."""
     from datetime import datetime, timedelta
     hoy = datetime.utcnow()
     hace_90_dias = hoy - timedelta(days=90)
 
-    procesos_activos = db.query(ProcesoTemplate).filter(ProcesoTemplate.activo == True).all()
+    tmpl_f = [ProcesoTemplate.activo == True]
+    if studio_id is not None:
+        tmpl_f.append(ProcesoTemplate.studio_id == studio_id)
+    procesos_activos = db.query(ProcesoTemplate).filter(*tmpl_f).all()
     procesos_totales = len(procesos_activos)
 
     # Procesos con al menos un SOP activo vinculado
     procesos_con_sop = 0
     for proc in procesos_activos:
-        tiene_sop = db.query(SopDocumento).filter(
-            SopDocumento.proceso_id == proc.id,
-            SopDocumento.estado == EstadoSop.activo,
-        ).first()
+        sop_f = [SopDocumento.proceso_id == proc.id, SopDocumento.estado == EstadoSop.activo]
+        if studio_id is not None:
+            sop_f.append(SopDocumento.studio_id == studio_id)
+        tiene_sop = db.query(SopDocumento).filter(*sop_f).first()
         if tiene_sop:
             procesos_con_sop += 1
 
@@ -551,7 +594,10 @@ def _calcular_cobertura_sops(db: Session) -> dict:
     porcentaje = round((procesos_con_sop / procesos_totales) * 100) if procesos_totales > 0 else 0
 
     # SOPs próximos a revisión (sin fecha o fecha > 90 días)
-    sops_activos = db.query(SopDocumento).filter(SopDocumento.estado == EstadoSop.activo).all()
+    sop_a_f = [SopDocumento.estado == EstadoSop.activo]
+    if studio_id is not None:
+        sop_a_f.append(SopDocumento.studio_id == studio_id)
+    sops_activos = db.query(SopDocumento).filter(*sop_a_f).all()
     sops_proximos_revision = []
     for sop in sops_activos:
         if sop.fecha_ultima_revision is None or sop.fecha_ultima_revision <= hace_90_dias:
@@ -580,7 +626,7 @@ def _calcular_cobertura_sops(db: Session) -> dict:
 
 # ─── Diagnóstico de Madurez ───────────────────────────────────────────────────
 
-def reporte_madurez(db: Session) -> dict:
+def reporte_madurez(db: Session, studio_id: int = None) -> dict:
     """Calcula la etapa de madurez del estudio según SYSTEMology."""
     from datetime import datetime, timedelta
 
@@ -588,22 +634,28 @@ def reporte_madurez(db: Session) -> dict:
     hace_90_dias = hoy - timedelta(days=90)
 
     # Indicadores
-    procesos_activos = db.query(ProcesoTemplate).filter(ProcesoTemplate.activo == True).count()
+    tmpl_f = [ProcesoTemplate.activo == True]
+    if studio_id is not None:
+        tmpl_f.append(ProcesoTemplate.studio_id == studio_id)
+    procesos_activos = db.query(ProcesoTemplate).filter(*tmpl_f).count()
 
-    instancias_90d = db.query(ProcesoInstancia).filter(
-        ProcesoInstancia.estado == EstadoInstancia.completado,
-        ProcesoInstancia.fecha_fin.isnot(None),
-        ProcesoInstancia.fecha_fin >= hace_90_dias,
-    ).count()
+    inst_f = [ProcesoInstancia.estado == EstadoInstancia.completado, ProcesoInstancia.fecha_fin.isnot(None), ProcesoInstancia.fecha_fin >= hace_90_dias]
+    if studio_id is not None:
+        inst_f.append(ProcesoInstancia.studio_id == studio_id)
+    instancias_90d = db.query(ProcesoInstancia).filter(*inst_f).count()
 
-    sops_activos = db.query(SopDocumento).filter(SopDocumento.estado == EstadoSop.activo).count()
+    sop_f = [SopDocumento.estado == EstadoSop.activo]
+    if studio_id is not None:
+        sop_f.append(SopDocumento.studio_id == studio_id)
+    sops_activos = db.query(SopDocumento).filter(*sop_f).count()
 
-    automatizaciones_aprobadas = db.query(Automatizacion).filter(
-        Automatizacion.estado_revision == EstadoRevisionAutomatizacion.aprobada
-    ).count()
+    auto_f = [Automatizacion.estado_revision == EstadoRevisionAutomatizacion.aprobada]
+    if studio_id is not None:
+        auto_f.append(Automatizacion.studio_id == studio_id)
+    automatizaciones_aprobadas = db.query(Automatizacion).filter(*auto_f).count()
 
     # Eficiencia promedio últimos 90 días
-    eficiencia_promedio = _calcular_eficiencia_promedio(db, hace_90_dias)
+    eficiencia_promedio = _calcular_eficiencia_promedio(db, hace_90_dias, studio_id)
 
     # Determinar etapa — umbrales ajustados para estudios de 1-3 personas
     if procesos_activos >= 3 and sops_activos >= 1 and automatizaciones_aprobadas >= 1 and eficiencia_promedio is not None and eficiencia_promedio >= 0.80:
@@ -660,22 +712,28 @@ def reporte_madurez(db: Session) -> dict:
     }
 
 
-def _calcular_eficiencia_promedio(db: Session, desde: "datetime") -> Optional[float]:
+def _calcular_eficiencia_promedio(db: Session, desde: "datetime", studio_id: int = None) -> Optional[float]:
     """Eficiencia = tiempo_estimado / tiempo_real. Retorna None si no hay datos."""
-    templates = db.query(ProcesoTemplate).filter(ProcesoTemplate.activo == True).all()
+    tmpl_f = [ProcesoTemplate.activo == True]
+    if studio_id is not None:
+        tmpl_f.append(ProcesoTemplate.studio_id == studio_id)
+    templates = db.query(ProcesoTemplate).filter(*tmpl_f).all()
     eficiencias = []
 
     for template in templates:
         if not template.tiempo_estimado_minutos:
             continue
 
-        instancias = db.query(ProcesoInstancia).filter(
+        inst_f = [
             ProcesoInstancia.template_id == template.id,
             ProcesoInstancia.estado == EstadoInstancia.completado,
             ProcesoInstancia.fecha_inicio.isnot(None),
             ProcesoInstancia.fecha_fin.isnot(None),
             ProcesoInstancia.fecha_fin >= desde,
-        ).all()
+        ]
+        if studio_id is not None:
+            inst_f.append(ProcesoInstancia.studio_id == studio_id)
+        instancias = db.query(ProcesoInstancia).filter(*inst_f).all()
 
         for inst in instancias:
             real = (inst.fecha_fin - inst.fecha_inicio).total_seconds() / 60
@@ -683,3 +741,157 @@ def _calcular_eficiencia_promedio(db: Session, desde: "datetime") -> Optional[fl
                 eficiencias.append(template.tiempo_estimado_minutos / real)
 
     return sum(eficiencias) / len(eficiencias) if eficiencias else None
+
+
+# ─── Reporte D2: Rentabilidad por tipo de cliente ────────────────────────────
+
+def rentabilidad_por_tipo(db: Session, studio_id: int) -> list[dict]:
+    """
+    Agrupa la rentabilidad por tipo_cliente.
+    Para cada tipo: cantidad de clientes, honorario promedio y margen promedio.
+    """
+    from models.rentabilidad import RentabilidadMensual
+
+    tipos = list(TipoCliente)
+    resultado = []
+
+    for tipo in tipos:
+        cli_f = [
+            Cliente.studio_id == studio_id,
+            Cliente.activo == True,
+            Cliente.tipo_cliente == tipo,
+        ]
+        clientes = db.query(Cliente).filter(*cli_f).all()
+        if not clientes:
+            continue
+
+        ids = [c.id for c in clientes]
+        honorario_promedio = (
+            sum(float(c.honorarios_mensuales or c.honorario_base or 0) for c in clientes) / len(clientes)
+        )
+
+        # Margen promedio desde snapshots de rentabilidad
+        snapshots = (
+            db.query(RentabilidadMensual)
+            .filter(
+                RentabilidadMensual.studio_id == studio_id,
+                RentabilidadMensual.cliente_id.in_(ids),
+            )
+            .all()
+        )
+        margenes = [
+            float(s.profit_margin_percentage)
+            for s in snapshots
+            if s.profit_margin_percentage is not None
+        ]
+        margen_promedio = round(sum(margenes) / len(margenes), 2) if margenes else 0.0
+
+        clientes_out = [
+            {
+                "cliente_id": c.id,
+                "nombre": c.nombre,
+                "honorarios_mensuales": float(c.honorarios_mensuales or 0),
+                "honorario_base": float(c.honorario_base or 0),
+            }
+            for c in clientes
+        ]
+
+        resultado.append({
+            "tipo_cliente": tipo.value,
+            "cantidad_clientes": len(clientes),
+            "honorario_promedio": round(honorario_promedio, 2),
+            "margen_promedio": margen_promedio,
+            "clientes": clientes_out,
+        })
+
+    return resultado
+
+
+# ─── Reporte D3: Tiempo real por cliente ─────────────────────────────────────
+
+def tiempo_por_cliente(
+    db: Session,
+    studio_id: int,
+    fecha_desde: date,
+    fecha_hasta: date,
+) -> list[dict]:
+    """
+    Calcula tiempo dedicado por cliente entre fecha_desde y fecha_hasta.
+    Usa tarea_sesiones → tareas → clientes.
+    """
+    desde_dt = datetime.combine(fecha_desde, datetime.min.time())
+    hasta_dt = datetime.combine(fecha_hasta, datetime.max.time())
+
+    # Traer todas las sesiones del período del studio
+    sesiones = (
+        db.query(TareaSesion, Tarea)
+        .join(Tarea, TareaSesion.tarea_id == Tarea.id)
+        .filter(
+            Tarea.studio_id == studio_id,
+            Tarea.cliente_id.isnot(None),
+            TareaSesion.minutos.isnot(None),
+            TareaSesion.inicio >= desde_dt,
+            TareaSesion.inicio <= hasta_dt,
+        )
+        .all()
+    )
+
+    # Agrupar por cliente_id
+    from collections import defaultdict
+    minutos_por_cliente: dict[int, int] = defaultdict(int)
+    for sesion, tarea in sesiones:
+        minutos_por_cliente[tarea.cliente_id] += sesion.minutos or 0
+
+    if not minutos_por_cliente:
+        return []
+
+    # Traer clientes involucrados
+    cliente_ids = list(minutos_por_cliente.keys())
+    clientes = (
+        db.query(Cliente)
+        .filter(Cliente.id.in_(cliente_ids), Cliente.studio_id == studio_id)
+        .all()
+    )
+    clientes_map = {c.id: c for c in clientes}
+
+    # Contar tareas completadas y activas por cliente en el período
+    resultado = []
+    for cliente_id, minutos in minutos_por_cliente.items():
+        cliente = clientes_map.get(cliente_id)
+        if not cliente:
+            continue
+
+        tareas_completadas = db.query(Tarea).filter(
+            Tarea.studio_id == studio_id,
+            Tarea.cliente_id == cliente_id,
+            Tarea.estado == EstadoTarea.completada,
+            Tarea.fecha_completada >= fecha_desde,
+            Tarea.fecha_completada <= fecha_hasta,
+        ).count()
+
+        tareas_activas = db.query(Tarea).filter(
+            Tarea.studio_id == studio_id,
+            Tarea.cliente_id == cliente_id,
+            Tarea.estado != EstadoTarea.completada,
+            Tarea.activo == True,
+        ).count()
+
+        horas_totales = round(minutos / 60, 2)
+        honorario = float(cliente.honorarios_mensuales or 0)
+        costo_hora = round(Decimal(str(honorario)) / Decimal(str(horas_totales)), 2) if horas_totales > 0 else None
+
+        resultado.append({
+            "cliente_id": cliente_id,
+            "cliente_nombre": cliente.nombre,
+            "tipo_cliente": cliente.tipo_cliente.value,
+            "minutos_totales": minutos,
+            "horas_totales": horas_totales,
+            "tareas_completadas": tareas_completadas,
+            "tareas_activas": tareas_activas,
+            "honorario_mensual": honorario,
+            "costo_hora_estimado": float(costo_hora) if costo_hora is not None else None,
+        })
+
+    resultado.sort(key=lambda x: -x["minutos_totales"])
+    return resultado
+

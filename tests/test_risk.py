@@ -3,11 +3,14 @@ from datetime import date, timedelta
 from models.cliente import CondicionFiscal
 from models.documento import Documento, EstadoDocumento, TipoDocumento
 from models.tarea import EstadoTarea, PrioridadTarea, TipoTarea, Tarea
+from tests.conftest import _get_or_create_studio
 
 
 def _crear_tarea_completada(db, cliente_id, fecha_completada, fecha_limite=None):
+    studio_id = _get_or_create_studio(db)
     tarea = Tarea(
         cliente_id=cliente_id,
+        studio_id=studio_id,
         titulo="Tarea test",
         tipo=TipoTarea.tarea,
         estado=EstadoTarea.completada,
@@ -22,8 +25,10 @@ def _crear_tarea_completada(db, cliente_id, fecha_completada, fecha_limite=None)
 
 
 def _crear_documento(db, cliente_id, estado: EstadoDocumento):
+    studio_id = _get_or_create_studio(db)
     doc = Documento(
         cliente_id=cliente_id,
+        studio_id=studio_id,
         nombre_original="doc_test.pdf",
         ruta_archivo="uploads/test/doc_test.pdf",
         tipo_documento=TipoDocumento.otro,

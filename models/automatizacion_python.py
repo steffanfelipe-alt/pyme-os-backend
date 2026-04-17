@@ -23,6 +23,7 @@ class AutomatizacionPython(Base):
     __tablename__ = "automatizaciones_python"
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    studio_id: Mapped[int] = mapped_column(Integer, ForeignKey("studios.id"), nullable=False, index=True)
     nombre: Mapped[str] = mapped_column(String(255), nullable=False)
     descripcion: Mapped[str | None] = mapped_column(Text, nullable=True)
     creado_por_id: Mapped[int | None] = mapped_column(Integer, ForeignKey("empleados.id"), nullable=True)

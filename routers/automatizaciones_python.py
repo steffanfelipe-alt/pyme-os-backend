@@ -5,7 +5,7 @@ Permite crear, editar y generar código Python desde un grafo de nodos estilo n8
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 
-from auth_dependencies import require_rol, solo_dueno
+from auth_dependencies import get_studio_id, require_rol, solo_dueno
 from database import get_db
 from models.automatizacion_python import EstadoAutomatizacionPython
 from schemas.automatizacion_python import (
@@ -26,6 +26,7 @@ async def generar_desde_descripcion(
     data: GenerarDesdeDescripcionRequest,
     db: Session = Depends(get_db),
     current_user: dict = Depends(require_rol("dueno", "contador")),
+    studio_id: int = Depends(get_studio_id),
 ):
     """
     Usa IA para generar un grafo de nodos Python a partir de una descripción textual.
@@ -36,6 +37,7 @@ async def generar_desde_descripcion(
         descripcion=data.descripcion,
         nombre=data.nombre,
         empleado_id=current_user.get("empleado_id"),
+        studio_id=studio_id,
     )
 
 
@@ -44,12 +46,14 @@ def crear_automatizacion_python(
     data: AutomatizacionPythonCreate,
     db: Session = Depends(get_db),
     current_user: dict = Depends(require_rol("dueno", "contador")),
+    studio_id: int = Depends(get_studio_id),
 ):
     """Crea una automatización Python vacía o con nodos/conexiones predefinidas."""
     return automatizacion_python_service.crear_automatizacion_python(
         db=db,
         data=data,
         empleado_id=current_user.get("empleado_id"),
+        studio_id=studio_id,
     )
 
 
@@ -57,9 +61,10 @@ def crear_automatizacion_python(
 def listar_automatizaciones_python(
     db: Session = Depends(get_db),
     current_user: dict = Depends(require_rol("dueno", "contador", "administrativo")),
+    studio_id: int = Depends(get_studio_id),
 ):
     """Lista todas las automatizaciones Python no archivadas."""
-    return automatizacion_python_service.listar_automatizaciones_python(db)
+    return automatizacion_python_service.listar_automatizaciones_python(db, studio_id)
 
 
 @router.get("/{auto_id}", response_model=AutomatizacionPythonResponse)
@@ -67,9 +72,10 @@ def obtener_automatizacion_python(
     auto_id: int,
     db: Session = Depends(get_db),
     current_user: dict = Depends(require_rol("dueno", "contador", "administrativo")),
+    studio_id: int = Depends(get_studio_id),
 ):
     """Retorna la automatización completa con nodos, conexiones y código generado."""
-    return automatizacion_python_service.obtener_automatizacion_python(db, auto_id)
+    return automatizacion_python_service.obtener_automatizacion_python(db, auto_id, studio_id)
 
 
 @router.put("/{auto_id}", response_model=AutomatizacionPythonResponse)

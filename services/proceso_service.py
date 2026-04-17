@@ -33,25 +33,27 @@ logger = logging.getLogger("pymeos")
 
 # ─── Templates ────────────────────────────────────────────────────────────────
 
-def crear_template(db: Session, data: ProcesoTemplateCreate, empleado_id: Optional[int]) -> ProcesoTemplate:
-    template = ProcesoTemplate(**data.model_dump(), creado_por=empleado_id)
+def crear_template(db: Session, data: ProcesoTemplateCreate, empleado_id: Optional[int], studio_id: int) -> ProcesoTemplate:
+    template = ProcesoTemplate(**data.model_dump(), creado_por=empleado_id, studio_id=studio_id)
     db.add(template)
     db.commit()
     db.refresh(template)
     return template
 
 
-def listar_templates(db: Session) -> list[ProcesoTemplate]:
+def listar_templates(db: Session, studio_id: int) -> list[ProcesoTemplate]:
     return (
         db.query(ProcesoTemplate)
-        .filter(ProcesoTemplate.activo == True)
+        .filter(ProcesoTemplate.studio_id == studio_id, ProcesoTemplate.activo == True)
         .order_by(ProcesoTemplate.nombre)
         .all()
     )
 
 
-def obtener_template(db: Session, template_id: int) -> ProcesoTemplate:
-    template = db.query(ProcesoTemplate).filter(ProcesoTemplate.id == template_id).first()
+def obtener_template(db: Session, template_id: int, studio_id: int) -> ProcesoTemplate:
+    template = db.query(ProcesoTemplate).filter(
+        ProcesoTemplate.id == template_id, ProcesoTemplate.studio_id == studio_id
+    ).first()
     if not template:
         raise HTTPException(status_code=404, detail="Template no encontrado")
     return template
@@ -62,8 +64,9 @@ def actualizar_template(
     template_id: int,
     data: ProcesoTemplateUpdate,
     current_user: dict,
+    studio_id: int,
 ) -> ProcesoTemplate:
-    template = obtener_template(db, template_id)
+    template = obtener_template(db, template_id, studio_id)
     # Contador solo puede editar templates que creó
     if current_user.get("rol") == "contador":
         if template.creado_por != current_user.get("empleado_id"):
@@ -76,8 +79,8 @@ def actualizar_template(
     return template
 
 
-def eliminar_template(db: Session, template_id: int) -> None:
-    template = obtener_template(db, template_id)
+def eliminar_template(db: Session, template_id: int, studio_id: int) -> None:
+    template = obtener_template(db, template_id, studio_id)
     template.activo = False
     db.commit()
 
@@ -87,12 +90,13 @@ def aplicar_optimizacion(
     template_id: int,
     descripcion_nueva: str | None,
     pasos_nuevos: list[dict],
+    studio_id: int,
 ) -> ProcesoTemplate:
     """
     Guarda el template actual como snapshot en version_anterior_json,
     luego reemplaza descripción y pasos con la versión optimizada por IA.
     """
-    template = obtener_template(db, template_id)
+    template = obtener_template(db, template_id, studio_id)
     pasos_actuales = obtener_pasos_template(db, template_id)
 
     # Snapshot de la versión anterior
@@ -136,9 +140,9 @@ def aplicar_optimizacion(
     return template
 
 
-def restaurar_version_anterior(db: Session, template_id: int) -> ProcesoTemplate:
+def restaurar_version_anterior(db: Session, template_id: int, studio_id: int) -> ProcesoTemplate:
     """Restaura el template desde el snapshot guardado en version_anterior_json."""
-    template = obtener_template(db, template_id)
+    template = obtener_template(db, template_id, studio_id)
     if not template.version_anterior_json:
         raise HTTPException(status_code=404, detail="No hay versión anterior guardada para este template.")
 
@@ -169,7 +173,10 @@ def restaurar_version_anterior(db: Session, template_id: int) -> ProcesoTemplate
     return template
 
 
-def obtener_pasos_template(db: Session, template_id: int) -> list[ProcesoPasoTemplate]:
+def obtener_pasos_template(db: Session, template_id: int, studio_id: int = None) -> list[ProcesoPasoTemplate]:
+    # Verify template belongs to studio before returning its pasos
+    if studio_id is not None:
+        obtener_template(db, template_id, studio_id)  # raises 404 if not in studio
     return (
         db.query(ProcesoPasoTemplate)
         .filter(ProcesoPasoTemplate.template_id == template_id)
@@ -180,8 +187,8 @@ def obtener_pasos_template(db: Session, template_id: int) -> list[ProcesoPasoTem
 
 # ─── Pasos Template ───────────────────────────────────────────────────────────
 
-def agregar_paso(db: Session, template_id: int, data: ProcesoPasoTemplateCreate) -> ProcesoPasoTemplate:
-    obtener_template(db, template_id)  # valida existencia
+def agregar_paso(db: Session, template_id: int, data: ProcesoPasoTemplateCreate, studio_id: int) -> ProcesoPasoTemplate:
+    obtener_template(db, template_id, studio_id)  # valida existencia y tenant
     # Verificar que el orden no esté ocupado
     existente = db.query(ProcesoPasoTemplate).filter(
         ProcesoPasoTemplate.template_id == template_id,
@@ -247,24 +254,30 @@ def crear_instancia(
     db: Session,
     data: ProcesoInstanciaCreate,
     current_user: dict,
+    studio_id: int,
 ) -> ProcesoInstancia:
-    template = obtener_template(db, data.template_id)
+    template = obtener_template(db, data.template_id, studio_id)
     if not template.activo:
         raise HTTPException(status_code=400, detail="El template no está activo")
 
     if data.cliente_id:
-        cliente = db.query(Cliente).filter(Cliente.id == data.cliente_id, Cliente.activo == True).first()
+        cliente = db.query(Cliente).filter(
+            Cliente.id == data.cliente_id, Cliente.studio_id == studio_id, Cliente.activo == True
+        ).first()
         if not cliente:
             raise HTTPException(status_code=404, detail="Cliente no encontrado")
 
     if data.vencimiento_id:
-        venc = db.query(Vencimiento).filter(Vencimiento.id == data.vencimiento_id).first()
+        venc = db.query(Vencimiento).filter(
+            Vencimiento.id == data.vencimiento_id, Vencimiento.studio_id == studio_id
+        ).first()
         if not venc:
             raise HTTPException(status_code=404, detail="Vencimiento no encontrado")
         if data.cliente_id and venc.cliente_id != data.cliente_id:
             raise HTTPException(status_code=400, detail="El vencimiento no pertenece al cliente indicado")
 
     instancia = ProcesoInstancia(
+        studio_id=studio_id,
         template_id=data.template_id,
         cliente_id=data.cliente_id,
         vencimiento_id=data.vencimiento_id,
@@ -289,13 +302,14 @@ def crear_instancia(
 
 def listar_instancias(
     db: Session,
+    studio_id: int,
     template_id: Optional[int] = None,
     cliente_id: Optional[int] = None,
     estado: Optional[EstadoInstancia] = None,
     skip: int = 0,
     limit: int = 50,
 ) -> list[ProcesoInstancia]:
-    query = db.query(ProcesoInstancia)
+    query = db.query(ProcesoInstancia).filter(ProcesoInstancia.studio_id == studio_id)
     if template_id is not None:
         query = query.filter(ProcesoInstancia.template_id == template_id)
     if cliente_id is not None:
@@ -305,8 +319,10 @@ def listar_instancias(
     return query.order_by(ProcesoInstancia.created_at.desc()).offset(skip).limit(limit).all()
 
 
-def obtener_instancia(db: Session, instancia_id: int) -> ProcesoInstancia:
-    instancia = db.query(ProcesoInstancia).filter(ProcesoInstancia.id == instancia_id).first()
+def obtener_instancia(db: Session, instancia_id: int, studio_id: int) -> ProcesoInstancia:
+    instancia = db.query(ProcesoInstancia).filter(
+        ProcesoInstancia.id == instancia_id, ProcesoInstancia.studio_id == studio_id
+    ).first()
     if not instancia:
         raise HTTPException(status_code=404, detail="Instancia no encontrada")
     return instancia
@@ -321,8 +337,8 @@ def obtener_pasos_instancia(db: Session, instancia_id: int) -> list[ProcesoPasoI
     )
 
 
-def actualizar_instancia(db: Session, instancia_id: int, data: ProcesoInstanciaUpdate) -> ProcesoInstancia:
-    instancia = obtener_instancia(db, instancia_id)
+def actualizar_instancia(db: Session, instancia_id: int, data: ProcesoInstanciaUpdate, studio_id: int) -> ProcesoInstancia:
+    instancia = obtener_instancia(db, instancia_id, studio_id)
     if data.estado is not None:
         instancia.estado = data.estado
         if data.estado == EstadoInstancia.en_progreso and instancia.fecha_inicio is None:
@@ -334,9 +350,9 @@ def actualizar_instancia(db: Session, instancia_id: int, data: ProcesoInstanciaU
     return instancia
 
 
-def iniciar_instancia(db: Session, instancia_id: int, empleado_id: Optional[int] = None) -> ProcesoInstancia:
+def iniciar_instancia(db: Session, instancia_id: int, studio_id: int, empleado_id: Optional[int] = None) -> ProcesoInstancia:
     """Transiciona la instancia de pendiente → en_progreso y registra fecha_inicio."""
-    instancia = obtener_instancia(db, instancia_id)
+    instancia = obtener_instancia(db, instancia_id, studio_id)
     if instancia.estado == EstadoInstancia.completado:
         raise HTTPException(status_code=400, detail="El proceso ya fue completado.")
     if instancia.estado == EstadoInstancia.cancelado:
@@ -349,9 +365,9 @@ def iniciar_instancia(db: Session, instancia_id: int, empleado_id: Optional[int]
     return instancia
 
 
-def completar_instancia(db: Session, instancia_id: int) -> ProcesoInstancia:
+def completar_instancia(db: Session, instancia_id: int, studio_id: int) -> ProcesoInstancia:
     """Transiciona la instancia → completado y registra fecha_fin y tiempo_real_minutos."""
-    instancia = obtener_instancia(db, instancia_id)
+    instancia = obtener_instancia(db, instancia_id, studio_id)
     if instancia.estado == EstadoInstancia.cancelado:
         raise HTTPException(status_code=400, detail="No se puede completar un proceso cancelado.")
     ahora = datetime.utcnow()
@@ -364,9 +380,9 @@ def completar_instancia(db: Session, instancia_id: int) -> ProcesoInstancia:
     return instancia
 
 
-def cancelar_instancia(db: Session, instancia_id: int) -> ProcesoInstancia:
+def cancelar_instancia(db: Session, instancia_id: int, studio_id: int) -> ProcesoInstancia:
     """Cancela una instancia en cualquier estado no-terminal."""
-    instancia = obtener_instancia(db, instancia_id)
+    instancia = obtener_instancia(db, instancia_id, studio_id)
     if instancia.estado in (EstadoInstancia.completado, EstadoInstancia.cancelado):
         raise HTTPException(status_code=400, detail=f"La instancia ya está en estado {instancia.estado.value}.")
     instancia.estado = EstadoInstancia.cancelado

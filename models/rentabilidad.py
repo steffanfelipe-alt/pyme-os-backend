@@ -10,6 +10,7 @@ class RentabilidadMensual(Base):
     __tablename__ = "rentabilidad_mensual"
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    studio_id: Mapped[int] = mapped_column(Integer, ForeignKey("studios.id"), nullable=False, index=True)
     cliente_id: Mapped[int] = mapped_column(
         Integer, ForeignKey("clientes.id"), nullable=False
     )

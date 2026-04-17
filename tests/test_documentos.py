@@ -25,6 +25,7 @@ def test_checklist_con_documentos_faltantes(client, auth_headers, db, cliente_te
     """Cliente con vencimiento IVA activo y sin documentos → faltantes."""
     venc = Vencimiento(
         cliente_id=cliente_test.id,
+        studio_id=cliente_test.studio_id,
         tipo=TipoVencimiento.iva,
         descripcion="IVA Marzo 2026",
         fecha_vencimiento=date(2026, 3, 21),

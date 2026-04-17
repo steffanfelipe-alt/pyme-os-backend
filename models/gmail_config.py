@@ -10,6 +10,7 @@ class GmailConfig(Base):
     __tablename__ = "gmail_config"
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    studio_id: Mapped[int] = mapped_column(Integer, ForeignKey("studios.id"), nullable=False, index=True)
     # Un estudio = un Gmail conectado (unique)
     studio_email: Mapped[str] = mapped_column(String(255), nullable=False, unique=True)
     gmail_address: Mapped[str] = mapped_column(String(255), nullable=False)

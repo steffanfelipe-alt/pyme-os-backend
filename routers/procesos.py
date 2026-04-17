@@ -3,7 +3,7 @@ from typing import Optional
 from fastapi import APIRouter, Depends
 from sqlalchemy.orm import Session
 
-from auth_dependencies import require_rol, solo_dueno, verificar_acceso_cliente
+from auth_dependencies import get_studio_id, require_rol, solo_dueno, verificar_acceso_cliente
 from database import get_db
 from models.proceso import EstadoInstancia
 from schemas.proceso import (
@@ -33,8 +33,9 @@ def crear_template(
     data: ProcesoTemplateCreate,
     db: Session = Depends(get_db),
     current_user: dict = Depends(require_rol("dueno", "contador")),
+    studio_id: int = Depends(get_studio_id),
 ):
-    template = proceso_service.crear_template(db, data, current_user.get("empleado_id"))
+    template = proceso_service.crear_template(db, data, current_user.get("empleado_id"), studio_id)
     pasos = proceso_service.obtener_pasos_template(db, template.id)
     return ProcesoTemplateResponse.from_orm_with_pasos(template, pasos)
 
@@ -43,8 +44,9 @@ def crear_template(
 def listar_templates(
     db: Session = Depends(get_db),
     current_user: dict = Depends(require_rol("dueno", "contador", "administrativo")),
+    studio_id: int = Depends(get_studio_id),
 ):
-    templates = proceso_service.listar_templates(db)
+    templates = proceso_service.listar_templates(db, studio_id)
     resultado = []
     for t in templates:
         pasos = proceso_service.obtener_pasos_template(db, t.id)
@@ -57,8 +59,9 @@ def obtener_template(
     template_id: int,
     db: Session = Depends(get_db),
     current_user: dict = Depends(require_rol("dueno", "contador", "administrativo")),
+    studio_id: int = Depends(get_studio_id),
 ):
-    template = proceso_service.obtener_template(db, template_id)
+    template = proceso_service.obtener_template(db, template_id, studio_id)
     pasos = proceso_service.obtener_pasos_template(db, template_id)
     return ProcesoTemplateResponse.from_orm_with_pasos(template, pasos)
 
@@ -69,8 +72,9 @@ def actualizar_template(
     data: ProcesoTemplateUpdate,
     db: Session = Depends(get_db),
     current_user: dict = Depends(require_rol("dueno", "contador")),
+    studio_id: int = Depends(get_studio_id),
 ):
-    template = proceso_service.actualizar_template(db, template_id, data, current_user)
+    template = proceso_service.actualizar_template(db, template_id, data, current_user, studio_id)
     pasos = proceso_service.obtener_pasos_template(db, template_id)
     return ProcesoTemplateResponse.from_orm_with_pasos(template, pasos)
 
@@ -80,8 +84,9 @@ def eliminar_template(
     template_id: int,
     db: Session = Depends(get_db),
     current_user: dict = Depends(solo_dueno),
+    studio_id: int = Depends(get_studio_id),
 ):
-    proceso_service.eliminar_template(db, template_id)
+    proceso_service.eliminar_template(db, template_id, studio_id)
 
 
 # ─── Pasos Template ───────────────────────────────────────────────────────────
@@ -92,8 +97,9 @@ def agregar_paso(
     data: ProcesoPasoTemplateCreate,
     db: Session = Depends(get_db),
     current_user: dict = Depends(require_rol("dueno", "contador")),
+    studio_id: int = Depends(get_studio_id),
 ):
-    return proceso_service.agregar_paso(db, template_id, data)
+    return proceso_service.agregar_paso(db, template_id, data, studio_id)
 
 
 @router.put("/pasos-template/{paso_id}", response_model=ProcesoPasoTemplateResponse)
@@ -122,10 +128,11 @@ def crear_instancia(
     data: ProcesoInstanciaCreate,
     db: Session = Depends(get_db),
     current_user: dict = Depends(require_rol("dueno", "contador", "administrativo")),
+    studio_id: int = Depends(get_studio_id),
 ):
     if data.cliente_id:
         verificar_acceso_cliente(current_user, data.cliente_id, db)
-    instancia = proceso_service.crear_instancia(db, data, current_user)
+    instancia = proceso_service.crear_instancia(db, data, current_user, studio_id)
     pasos = proceso_service.obtener_pasos_instancia(db, instancia.id)
     instancia.pasos = pasos
     return ProcesoInstanciaResponse.model_validate(instancia)
@@ -140,8 +147,9 @@ def listar_instancias(
     limit: int = 50,
     db: Session = Depends(get_db),
     current_user: dict = Depends(require_rol("dueno", "contador", "administrativo")),
+    studio_id: int = Depends(get_studio_id),
 ):
-    instancias = proceso_service.listar_instancias(db, template_id, cliente_id, estado, skip, limit)
+    instancias = proceso_service.listar_instancias(db, studio_id, template_id, cliente_id, estado, skip, limit)
     resultado = []
     for inst in instancias:
         pasos = proceso_service.obtener_pasos_instancia(db, inst.id)
@@ -155,8 +163,9 @@ def obtener_instancia(
     instancia_id: int,
     db: Session = Depends(get_db),
     current_user: dict = Depends(require_rol("dueno", "contador", "administrativo")),
+    studio_id: int = Depends(get_studio_id),
 ):
-    instancia = proceso_service.obtener_instancia(db, instancia_id)
+    instancia = proceso_service.obtener_instancia(db, instancia_id, studio_id)
     pasos = proceso_service.obtener_pasos_instancia(db, instancia_id)
 
     # Enriquecer pasos con guia_sop si hay SOP activo vinculado al template
@@ -193,8 +202,9 @@ def actualizar_instancia(
     data: ProcesoInstanciaUpdate,
     db: Session = Depends(get_db),
     current_user: dict = Depends(require_rol("dueno", "contador", "administrativo")),
+    studio_id: int = Depends(get_studio_id),
 ):
-    instancia = proceso_service.actualizar_instancia(db, instancia_id, data)
+    instancia = proceso_service.actualizar_instancia(db, instancia_id, data, studio_id)
     pasos = proceso_service.obtener_pasos_instancia(db, instancia_id)
     instancia.pasos = pasos
     return ProcesoInstanciaResponse.model_validate(instancia)
@@ -205,9 +215,10 @@ def iniciar_proceso_instancia(
     instancia_id: int,
     db: Session = Depends(get_db),
     current_user: dict = Depends(require_rol("dueno", "contador", "administrativo")),
+    studio_id: int = Depends(get_studio_id),
 ):
     """Inicia una instancia de proceso: pendiente → en_progreso, registra fecha_inicio."""
-    instancia = iniciar_instancia(db, instancia_id, current_user.get("empleado_id"))
+    instancia = iniciar_instancia(db, instancia_id, studio_id, current_user.get("empleado_id"))
     pasos = proceso_service.obtener_pasos_instancia(db, instancia_id)
     instancia.pasos = pasos
     return ProcesoInstanciaResponse.model_validate(instancia)
@@ -218,9 +229,10 @@ def completar_proceso_instancia(
     instancia_id: int,
     db: Session = Depends(get_db),
     current_user: dict = Depends(require_rol("dueno", "contador", "administrativo")),
+    studio_id: int = Depends(get_studio_id),
 ):
     """Completa una instancia: → completado, registra fecha_fin y tiempo_real_minutos."""
-    instancia = completar_instancia(db, instancia_id)
+    instancia = completar_instancia(db, instancia_id, studio_id)
     pasos = proceso_service.obtener_pasos_instancia(db, instancia_id)
     instancia.pasos = pasos
     return ProcesoInstanciaResponse.model_validate(instancia)
@@ -231,9 +243,10 @@ def cancelar_proceso_instancia(
     instancia_id: int,
     db: Session = Depends(get_db),
     current_user: dict = Depends(require_rol("dueno", "contador", "administrativo")),
+    studio_id: int = Depends(get_studio_id),
 ):
     """Cancela una instancia en progreso o pendiente."""
-    instancia = cancelar_instancia(db, instancia_id)
+    instancia = cancelar_instancia(db, instancia_id, studio_id)
     pasos = proceso_service.obtener_pasos_instancia(db, instancia_id)
     instancia.pasos = pasos
     return ProcesoInstanciaResponse.model_validate(instancia)
@@ -282,13 +295,14 @@ async def previsualizar_optimizacion(
     template_id: int,
     db: Session = Depends(get_db),
     current_user: dict = Depends(require_rol("dueno", "contador")),
+    studio_id: int = Depends(get_studio_id),
 ):
     """
     Genera una versión optimizada del template usando IA SIN guardarla.
     Útil para comparar original vs IA antes de decidir si aplicar.
     """
     from services.optimizador_service import optimizar_descripcion
-    template = proceso_service.obtener_template(db, template_id)
+    template = proceso_service.obtener_template(db, template_id, studio_id)
     pasos = proceso_service.obtener_pasos_template(db, template_id)
 
     # Construir descripción enriquecida con los pasos actuales
@@ -320,6 +334,7 @@ def aplicar_optimizacion_template(
     payload: dict,
     db: Session = Depends(get_db),
     current_user: dict = Depends(require_rol("dueno", "contador")),
+    studio_id: int = Depends(get_studio_id),
 ):
     """
     Aplica la versión optimizada al template, guardando la original como snapshot.
@@ -331,7 +346,7 @@ def aplicar_optimizacion_template(
         from fastapi import HTTPException
         raise HTTPException(status_code=422, detail="Se requiere al menos un paso en 'pasos'.")
 
-    template = proceso_service.aplicar_optimizacion(db, template_id, descripcion_nueva, pasos_nuevos)
+    template = proceso_service.aplicar_optimizacion(db, template_id, descripcion_nueva, pasos_nuevos, studio_id)
     pasos = proceso_service.obtener_pasos_template(db, template_id)
     return ProcesoTemplateResponse.from_orm_with_pasos(template, pasos)
 
@@ -341,9 +356,10 @@ def restaurar_version_anterior(
     template_id: int,
     db: Session = Depends(get_db),
     current_user: dict = Depends(require_rol("dueno", "contador")),
+    studio_id: int = Depends(get_studio_id),
 ):
     """Restaura el template a la versión previa al último apply de optimización."""
-    template = proceso_service.restaurar_version_anterior(db, template_id)
+    template = proceso_service.restaurar_version_anterior(db, template_id, studio_id)
     pasos = proceso_service.obtener_pasos_template(db, template_id)
     return ProcesoTemplateResponse.from_orm_with_pasos(template, pasos)
 
@@ -353,6 +369,7 @@ async def analizar_automatizabilidad(
     template_id: int,
     db: Session = Depends(get_db),
     current_user: dict = Depends(solo_dueno),
+    studio_id: int = Depends(get_studio_id),
 ):
     from services.optimizador_service import analizar_pasos_automatizabilidad
     pasos = proceso_service.obtener_pasos_template(db, template_id)

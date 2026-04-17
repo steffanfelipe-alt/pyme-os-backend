@@ -5,6 +5,7 @@ from sqlalchemy import Boolean, DateTime, Enum, Float, ForeignKey, Integer, Stri
 from sqlalchemy import JSON
 from sqlalchemy.orm import Mapped, mapped_column
 
+
 from database import Base
 
 
@@ -30,6 +31,7 @@ class Documento(Base):
     __tablename__ = "documentos"
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    studio_id: Mapped[int] = mapped_column(Integer, ForeignKey("studios.id"), nullable=False, index=True)
     cliente_id: Mapped[int] = mapped_column(Integer, ForeignKey("clientes.id"), nullable=False)
     vencimiento_id: Mapped[int | None] = mapped_column(
         Integer, ForeignKey("vencimientos.id"), nullable=True

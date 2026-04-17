@@ -3,7 +3,7 @@ from typing import Optional
 from fastapi import APIRouter, Depends
 from sqlalchemy.orm import Session
 
-from auth_dependencies import require_rol, solo_dueno
+from auth_dependencies import get_studio_id, require_rol, solo_dueno
 from database import get_db
 from schemas.empleado import (
     CargaDetalleEmpleado,
@@ -22,8 +22,9 @@ def crear_empleado(
     data: EmpleadoCreate,
     db: Session = Depends(get_db),
     current_user: dict = Depends(solo_dueno),
+    studio_id: int = Depends(get_studio_id),
 ):
-    return empleado_service.crear_empleado(db, data)
+    return empleado_service.crear_empleado(db, data, studio_id)
 
 
 @router.get("", response_model=list[EmpleadoResponse], response_model_exclude_none=True)
@@ -33,16 +34,18 @@ def listar_empleados(
     activo: Optional[bool] = True,
     db: Session = Depends(get_db),
     current_user: dict = Depends(require_rol("dueno", "rrhh")),
+    studio_id: int = Depends(get_studio_id),
 ):
-    return empleado_service.listar_empleados(db, skip, limit, activo)
+    return empleado_service.listar_empleados(db, studio_id, skip, limit, activo)
 
 
 @router.get("/carga", response_model=list[CargaResumenEmpleado])
 def listar_carga_empleados(
     db: Session = Depends(get_db),
     current_user: dict = Depends(solo_dueno),
+    studio_id: int = Depends(get_studio_id),
 ):
-    return empleado_service.listar_carga_empleados(db)
+    return empleado_service.listar_carga_empleados(db, studio_id)
 
 
 @router.get("/{empleado_id}/tareas", response_model=CargaDetalleEmpleado)
@@ -50,8 +53,9 @@ def obtener_carga_empleado(
     empleado_id: int,
     db: Session = Depends(get_db),
     current_user: dict = Depends(solo_dueno),
+    studio_id: int = Depends(get_studio_id),
 ):
-    return empleado_service.obtener_carga_empleado(db, empleado_id)
+    return empleado_service.obtener_carga_empleado(db, empleado_id, studio_id)
 
 
 @router.get("/{empleado_id}", response_model=EmpleadoResponse, response_model_exclude_none=True)
@@ -59,8 +63,9 @@ def obtener_empleado(
     empleado_id: int,
     db: Session = Depends(get_db),
     current_user: dict = Depends(require_rol("dueno", "rrhh")),
+    studio_id: int = Depends(get_studio_id),
 ):
-    return empleado_service.obtener_empleado(db, empleado_id)
+    return empleado_service.obtener_empleado(db, empleado_id, studio_id)
 
 
 @router.put("/{empleado_id}", response_model=EmpleadoResponse, response_model_exclude_none=True)
@@ -69,8 +74,9 @@ def actualizar_empleado(
     data: EmpleadoUpdate,
     db: Session = Depends(get_db),
     current_user: dict = Depends(solo_dueno),
+    studio_id: int = Depends(get_studio_id),
 ):
-    return empleado_service.actualizar_empleado(db, empleado_id, data)
+    return empleado_service.actualizar_empleado(db, empleado_id, data, studio_id)
 
 
 @router.delete("/{empleado_id}", status_code=204)
@@ -78,5 +84,6 @@ def eliminar_empleado(
     empleado_id: int,
     db: Session = Depends(get_db),
     current_user: dict = Depends(solo_dueno),
+    studio_id: int = Depends(get_studio_id),
 ):
-    empleado_service.eliminar_empleado(db, empleado_id)
+    empleado_service.eliminar_empleado(db, empleado_id, studio_id)

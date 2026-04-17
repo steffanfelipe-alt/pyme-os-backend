@@ -20,12 +20,15 @@ def crear_automatizacion(
     flujo_json: dict,
     analisis_pasos: dict,
     ahorro_horas_mes: float,
+    studio_id: int = None,
 ) -> Automatizacion:
     template = db.query(ProcesoTemplate).filter(
         ProcesoTemplate.id == template_id, ProcesoTemplate.activo == True
     ).first()
     if not template:
         raise HTTPException(status_code=404, detail="Template no encontrado")
+
+    sid = studio_id or template.studio_id
 
     existente = db.query(Automatizacion).filter(Automatizacion.template_id == template_id).first()
     if existente:
@@ -38,6 +41,7 @@ def crear_automatizacion(
         return existente
 
     automatizacion = Automatizacion(
+        studio_id=sid,
         template_id=template_id,
         flujo_json=flujo_json,
         analisis_pasos=analisis_pasos,
@@ -49,19 +53,28 @@ def crear_automatizacion(
     return automatizacion
 
 
-def listar_automatizaciones(db: Session) -> list[Automatizacion]:
-    return db.query(Automatizacion).order_by(Automatizacion.created_at.desc()).all()
+def listar_automatizaciones(db: Session, studio_id: int = None) -> list[Automatizacion]:
+    filtros = []
+    if studio_id is not None:
+        filtros.append(Automatizacion.studio_id == studio_id)
+    return db.query(Automatizacion).filter(*filtros).order_by(Automatizacion.created_at.desc()).all()
 
 
-def obtener_automatizacion(db: Session, automatizacion_id: int) -> Automatizacion:
-    aut = db.query(Automatizacion).filter(Automatizacion.id == automatizacion_id).first()
+def obtener_automatizacion(db: Session, automatizacion_id: int, studio_id: int = None) -> Automatizacion:
+    filtros = [Automatizacion.id == automatizacion_id]
+    if studio_id is not None:
+        filtros.append(Automatizacion.studio_id == studio_id)
+    aut = db.query(Automatizacion).filter(*filtros).first()
     if not aut:
         raise HTTPException(status_code=404, detail="Automatización no encontrada")
     return aut
 
 
-def obtener_automatizacion_por_template(db: Session, template_id: int) -> Automatizacion:
-    aut = db.query(Automatizacion).filter(Automatizacion.template_id == template_id).first()
+def obtener_automatizacion_por_template(db: Session, template_id: int, studio_id: int = None) -> Automatizacion:
+    filtros = [Automatizacion.template_id == template_id]
+    if studio_id is not None:
+        filtros.append(Automatizacion.studio_id == studio_id)
+    aut = db.query(Automatizacion).filter(*filtros).first()
     if not aut:
         raise HTTPException(status_code=404, detail="No hay automatización para este template")
     return aut
@@ -86,10 +99,13 @@ def eliminar_automatizacion(db: Session, automatizacion_id: int) -> None:
     db.commit()
 
 
-def listar_pendientes_revision(db: Session) -> list[Automatizacion]:
+def listar_pendientes_revision(db: Session, studio_id: int = None) -> list[Automatizacion]:
+    filtros = [Automatizacion.estado_revision == EstadoRevisionAutomatizacion.pendiente]
+    if studio_id is not None:
+        filtros.append(Automatizacion.studio_id == studio_id)
     return (
         db.query(Automatizacion)
-        .filter(Automatizacion.estado_revision == EstadoRevisionAutomatizacion.pendiente)
+        .filter(*filtros)
         .order_by(Automatizacion.created_at.desc())
         .all()
     )

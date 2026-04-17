@@ -3,7 +3,7 @@ from typing import Optional
 from fastapi import APIRouter, Depends
 from sqlalchemy.orm import Session
 
-from auth_dependencies import require_rol, solo_dueno, verificar_acceso_cliente
+from auth_dependencies import get_studio_id, require_rol, solo_dueno, verificar_acceso_cliente
 from database import get_db
 from models.vencimiento import EstadoVencimiento
 from schemas.vencimiento import VencimientoCreate, VencimientoResponse, VencimientoUpdate
@@ -17,10 +17,11 @@ def cumplir_vencimiento(
     vencimiento_id: int,
     db: Session = Depends(get_db),
     current_user: dict = Depends(require_rol("dueno", "contador", "administrativo")),
+    studio_id: int = Depends(get_studio_id),
 ):
     from schemas.vencimiento import VencimientoUpdate as VU
     return vencimiento_service.actualizar_vencimiento(
-        db, vencimiento_id, VU(estado=EstadoVencimiento.cumplido)
+        db, vencimiento_id, VU(estado=EstadoVencimiento.cumplido), studio_id
     )
 
 
@@ -29,10 +30,11 @@ def crear_vencimiento(
     data: VencimientoCreate,
     db: Session = Depends(get_db),
     current_user: dict = Depends(require_rol("dueno", "contador", "administrativo")),
+    studio_id: int = Depends(get_studio_id),
 ):
     if current_user.get("rol") == "contador":
         verificar_acceso_cliente(current_user, data.cliente_id, db)
-    return vencimiento_service.crear_vencimiento(db, data)
+    return vencimiento_service.crear_vencimiento(db, data, studio_id)
 
 
 @router.get("", response_model=list[VencimientoResponse], response_model_exclude_none=True)
@@ -44,11 +46,12 @@ def listar_vencimientos(
     dias_max: Optional[int] = 180,
     db: Session = Depends(get_db),
     current_user: dict = Depends(require_rol("dueno", "contador", "administrativo")),
+    studio_id: int = Depends(get_studio_id),
 ):
     if current_user.get("rol") == "contador" and cliente_id is not None:
         verificar_acceso_cliente(current_user, cliente_id, db)
     contador_id = current_user.get("empleado_id") if current_user.get("rol") == "contador" else None
-    return vencimiento_service.listar_vencimientos(db, cliente_id, estado, skip, limit, contador_id, dias_max)
+    return vencimiento_service.listar_vencimientos(db, studio_id, cliente_id, estado, skip, limit, contador_id, dias_max)
 
 
 @router.get("/{vencimiento_id}", response_model=VencimientoResponse, response_model_exclude_none=True)
@@ -56,8 +59,9 @@ def obtener_vencimiento(
     vencimiento_id: int,
     db: Session = Depends(get_db),
     current_user: dict = Depends(require_rol("dueno", "contador", "administrativo")),
+    studio_id: int = Depends(get_studio_id),
 ):
-    return vencimiento_service.obtener_vencimiento(db, vencimiento_id)
+    return vencimiento_service.obtener_vencimiento(db, vencimiento_id, studio_id)
 
 
 @router.put("/{vencimiento_id}", response_model=VencimientoResponse, response_model_exclude_none=True)
@@ -66,8 +70,9 @@ def actualizar_vencimiento(
     data: VencimientoUpdate,
     db: Session = Depends(get_db),
     current_user: dict = Depends(require_rol("dueno", "contador", "administrativo")),
+    studio_id: int = Depends(get_studio_id),
 ):
-    return vencimiento_service.actualizar_vencimiento(db, vencimiento_id, data)
+    return vencimiento_service.actualizar_vencimiento(db, vencimiento_id, data, studio_id)
 
 
 @router.delete("/{vencimiento_id}", status_code=204)
@@ -75,8 +80,9 @@ def eliminar_vencimiento(
     vencimiento_id: int,
     db: Session = Depends(get_db),
     current_user: dict = Depends(solo_dueno),
+    studio_id: int = Depends(get_studio_id),
 ):
-    vencimiento_service.eliminar_vencimiento(db, vencimiento_id)
+    vencimiento_service.eliminar_vencimiento(db, vencimiento_id, studio_id)
 
 
 @router.post("/{vencimiento_id}/crear-tarea", status_code=201)
@@ -84,13 +90,14 @@ def crear_tarea_desde_vencimiento(
     vencimiento_id: int,
     db: Session = Depends(get_db),
     current_user: dict = Depends(require_rol("dueno", "contador", "administrativo")),
+    studio_id: int = Depends(get_studio_id),
 ):
     """Crea automáticamente una tarea a partir de un vencimiento pendiente."""
     from services.tarea_service import crear_tarea
     from schemas.tarea import TareaCreate
     from models.tarea import TipoTarea, PrioridadTarea
 
-    venc = vencimiento_service.obtener_vencimiento(db, vencimiento_id)
+    venc = vencimiento_service.obtener_vencimiento(db, vencimiento_id, studio_id)
     dias = (venc.fecha_vencimiento - __import__("datetime").date.today()).days
     prioridad = PrioridadTarea.urgente if dias <= 3 else PrioridadTarea.alta if dias <= 7 else PrioridadTarea.normal
 
@@ -101,5 +108,5 @@ def crear_tarea_desde_vencimiento(
         prioridad=prioridad,
         fecha_limite=venc.fecha_vencimiento,
     )
-    tarea = crear_tarea(db, tarea_data)
+    tarea = crear_tarea(db, tarea_data, studio_id)
     return {"tarea_id": tarea.id, "titulo": tarea.titulo, "prioridad": tarea.prioridad}

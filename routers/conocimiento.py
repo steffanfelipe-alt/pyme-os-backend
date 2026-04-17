@@ -7,7 +7,7 @@ from typing import Optional
 from fastapi import APIRouter, Depends
 from sqlalchemy.orm import Session
 
-from auth_dependencies import require_rol
+from auth_dependencies import get_studio_id, require_rol
 from database import get_db
 from schemas.proceso import ProcesoTemplateResponse
 from services import proceso_service
@@ -23,13 +23,14 @@ def listar_sops(
     area: Optional[str] = None,
     db: Session = Depends(get_db),
     current_user: dict = Depends(require_rol("dueno", "contador", "administrativo")),
+    studio_id: int = Depends(get_studio_id),
 ):
     """Lista todos los templates que tienen SOP generado. Soporta búsqueda por q y filtro por área."""
     from models.sop_documento import SopDocumento, EstadoSop, AreaSop
     from sqlalchemy.orm import Session as _S
 
     # SOPs asistidos publicados (SopDocumento con estado activo)
-    query = db.query(SopDocumento).filter(SopDocumento.estado == EstadoSop.activo)
+    query = db.query(SopDocumento).filter(SopDocumento.estado == EstadoSop.activo, SopDocumento.studio_id == studio_id)
 
     if area:
         try:
@@ -59,7 +60,7 @@ def listar_sops(
         })
 
     # También incluir templates con sop_url (PDF generado)
-    templates = proceso_service.listar_templates(db)
+    templates = proceso_service.listar_templates(db, studio_id)
     for t in templates:
         if not t.sop_url:
             continue
@@ -126,13 +127,14 @@ def listar_automatizaciones_aprobadas(
     q: Optional[str] = None,
     db: Session = Depends(get_db),
     current_user: dict = Depends(require_rol("dueno", "contador", "administrativo")),
+    studio_id: int = Depends(get_studio_id),
 ):
     """Lista automatizaciones n8n aprobadas, con JSON de flujo y template asociado."""
     from models.proceso import Automatizacion, EstadoRevisionAutomatizacion, ProcesoTemplate
 
     autos = (
         db.query(Automatizacion)
-        .filter(Automatizacion.estado_revision == EstadoRevisionAutomatizacion.aprobada)
+        .filter(Automatizacion.estado_revision == EstadoRevisionAutomatizacion.aprobada, Automatizacion.studio_id == studio_id)
         .order_by(Automatizacion.aprobado_at.desc())
         .all()
     )
@@ -169,13 +171,14 @@ def listar_automatizaciones_python(
     q: Optional[str] = None,
     db: Session = Depends(get_db),
     current_user: dict = Depends(require_rol("dueno", "contador", "administrativo")),
+    studio_id: int = Depends(get_studio_id),
 ):
     """Lista automatizaciones Python activas del centro de conocimientos."""
     from models.automatizacion_python import AutomatizacionPython, EstadoAutomatizacionPython
 
     autos = (
         db.query(AutomatizacionPython)
-        .filter(AutomatizacionPython.estado == EstadoAutomatizacionPython.activo)
+        .filter(AutomatizacionPython.estado == EstadoAutomatizacionPython.activo, AutomatizacionPython.studio_id == studio_id)
         .order_by(AutomatizacionPython.updated_at.desc())
         .all()
     )
@@ -204,6 +207,7 @@ def buscar_conocimiento(
     q: str,
     db: Session = Depends(get_db),
     current_user: dict = Depends(require_rol("dueno", "contador", "administrativo")),
+    studio_id: int = Depends(get_studio_id),
 ):
     """
     Búsqueda full-text entre SOPs, automatizaciones n8n y automatizaciones Python.
@@ -217,7 +221,7 @@ def buscar_conocimiento(
 
     # SOPs asistidos
     from models.sop_documento import SopDocumento, EstadoSop
-    sops = db.query(SopDocumento).filter(SopDocumento.estado == EstadoSop.activo).all()
+    sops = db.query(SopDocumento).filter(SopDocumento.estado == EstadoSop.activo, SopDocumento.studio_id == studio_id).all()
     for sop in sops:
         texto = f"{sop.titulo} {sop.descripcion_proposito or ''} {sop.resultado_esperado or ''}"
         if q.lower() in texto.lower():
@@ -233,7 +237,8 @@ def buscar_conocimiento(
     # Automatizaciones n8n aprobadas
     from models.proceso import Automatizacion, EstadoRevisionAutomatizacion, ProcesoTemplate
     autos = db.query(Automatizacion).filter(
-        Automatizacion.estado_revision == EstadoRevisionAutomatizacion.aprobada
+        Automatizacion.estado_revision == EstadoRevisionAutomatizacion.aprobada,
+        Automatizacion.studio_id == studio_id,
     ).all()
     template_ids = {a.template_id for a in autos if a.template_id}
     templates_map = {
@@ -256,7 +261,8 @@ def buscar_conocimiento(
     # Automatizaciones Python
     from models.automatizacion_python import AutomatizacionPython, EstadoAutomatizacionPython
     py_autos = db.query(AutomatizacionPython).filter(
-        AutomatizacionPython.estado == EstadoAutomatizacionPython.activo
+        AutomatizacionPython.estado == EstadoAutomatizacionPython.activo,
+        AutomatizacionPython.studio_id == studio_id,
     ).all()
     for auto in py_autos:
         texto = f"{auto.nombre} {auto.descripcion or ''}"

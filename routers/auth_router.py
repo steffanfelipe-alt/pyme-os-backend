@@ -10,6 +10,7 @@ from sqlalchemy.orm import Session
 from auth import create_access_token, hash_password, verify_password
 from database import get_db
 from models.empleado import Empleado
+from models.studio import Studio
 from models.usuario import Usuario
 from rate_limiter import limiter
 
@@ -74,11 +75,22 @@ def setup_estudio(request: Request, data: SetupEstudioRequest, db: Session = Dep
     if len(data.password) < 8:
         raise HTTPException(status_code=422, detail="La contraseña debe tener al menos 8 caracteres")
 
+    # Crear o reutilizar el Studio (id=1 si ya existe del seed de migración)
+    studio = db.query(Studio).first()
+    if not studio:
+        studio = Studio(nombre=data.nombre_estudio)
+        db.add(studio)
+        db.flush()
+    else:
+        studio.nombre = data.nombre_estudio
+        db.flush()
+
     # Crear usuario de autenticación
     usuario = Usuario(
         email=data.email,
         password_hash=hash_password(data.password),
         nombre=data.nombre_dueno,
+        studio_id=studio.id,
     )
     db.add(usuario)
     db.flush()
@@ -90,6 +102,7 @@ def setup_estudio(request: Request, data: SetupEstudioRequest, db: Session = Dep
         rol="dueno",
         capacidad_horas_mes=160,
         activo=True,
+        studio_id=studio.id,
     )
     db.add(empleado)
     db.commit()
@@ -103,7 +116,7 @@ def setup_estudio(request: Request, data: SetupEstudioRequest, db: Session = Dep
         "nombre": empleado.nombre,
         "rol": empleado.rol,
         "empleado_id": empleado.id,
-        "studio_id": 1,
+        "studio_id": studio.id,
     })
     return TokenResponse(access_token=token)
 
@@ -115,22 +128,27 @@ def register(request: Request, data: RegisterRequest, db: Session = Depends(get_
     if existente:
         raise HTTPException(status_code=409, detail="Ya existe un usuario con ese email")
 
+    # El empleado debe existir primero (invitado por el dueño) para determinar el studio
+    empleado = db.query(Empleado).filter(Empleado.email == data.email, Empleado.activo == True).first()
+    if not empleado:
+        raise HTTPException(status_code=403, detail="No hay un empleado registrado con ese email")
+
     usuario = Usuario(
         email=data.email,
         password_hash=hash_password(data.password),
         nombre=data.nombre,
+        studio_id=empleado.studio_id,
     )
     db.add(usuario)
     db.commit()
     db.refresh(usuario)
 
-    empleado = db.query(Empleado).filter(Empleado.email == usuario.email, Empleado.activo == True).first()
     token = create_access_token({
         "sub": str(usuario.id),
         "email": usuario.email,
-        "rol": empleado.rol if empleado else None,
-        "empleado_id": empleado.id if empleado else None,
-        "studio_id": 1,
+        "rol": empleado.rol,
+        "empleado_id": empleado.id,
+        "studio_id": empleado.studio_id,
     })
     return TokenResponse(access_token=token)
 
@@ -142,13 +160,17 @@ def login(request: Request, data: LoginRequest, db: Session = Depends(get_db)):
     if not usuario or not verify_password(data.password, usuario.password_hash):
         raise HTTPException(status_code=401, detail="Credenciales incorrectas")
 
-    empleado = db.query(Empleado).filter(Empleado.email == usuario.email, Empleado.activo == True).first()
+    empleado = db.query(Empleado).filter(
+        Empleado.email == usuario.email,
+        Empleado.studio_id == usuario.studio_id,
+        Empleado.activo == True,
+    ).first()
     token = create_access_token({
         "sub": str(usuario.id),
         "email": usuario.email,
         "rol": empleado.rol if empleado else None,
         "empleado_id": empleado.id if empleado else None,
-        "studio_id": 1,
+        "studio_id": usuario.studio_id,
     })
     return TokenResponse(access_token=token)
 

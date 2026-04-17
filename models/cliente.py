@@ -2,8 +2,8 @@ import enum
 from datetime import datetime
 from decimal import Decimal
 
-from sqlalchemy import Boolean, DateTime, Enum, Float, ForeignKey, Integer, Numeric, String, Text, func
-from sqlalchemy.orm import Mapped, mapped_column
+from sqlalchemy import Boolean, DateTime, Enum, Float, ForeignKey, Integer, Numeric, String, Text, UniqueConstraint, func
+from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from database import Base
 
@@ -11,6 +11,14 @@ from database import Base
 class TipoPersona(str, enum.Enum):
     fisica = "fisica"
     juridica = "juridica"
+
+
+class TipoCliente(str, enum.Enum):
+    monotributista = "monotributista"
+    responsable_inscripto = "responsable_inscripto"
+    sociedad = "sociedad"
+    empleador = "empleador"
+    otro = "otro"
 
 
 class CondicionFiscal(str, enum.Enum):
@@ -25,11 +33,13 @@ class CondicionFiscal(str, enum.Enum):
 
 class Cliente(Base):
     __tablename__ = "clientes"
+    __table_args__ = (UniqueConstraint("cuit_cuil", "studio_id", name="uq_clientes_cuit_studio"),)
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    studio_id: Mapped[int] = mapped_column(Integer, ForeignKey("studios.id"), nullable=False, index=True)
     tipo_persona: Mapped[TipoPersona] = mapped_column(Enum(TipoPersona), nullable=False)
     nombre: Mapped[str] = mapped_column(String(255), nullable=False)
-    cuit_cuil: Mapped[str] = mapped_column(String(20), unique=True, nullable=False)
+    cuit_cuil: Mapped[str] = mapped_column(String(20), nullable=False)
     email: Mapped[str | None] = mapped_column(String(255), nullable=True)
     telefono: Mapped[str | None] = mapped_column(String(50), nullable=True)
     telefono_whatsapp: Mapped[str | None] = mapped_column(String(50), nullable=True)
@@ -49,7 +59,13 @@ class Cliente(Base):
     risk_level: Mapped[str | None] = mapped_column(String(10), nullable=True)
     risk_calculated_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
     risk_explanation: Mapped[str | None] = mapped_column(Text, nullable=True)
+    tipo_cliente: Mapped[TipoCliente] = mapped_column(
+        Enum(TipoCliente), default=TipoCliente.otro, server_default="otro", nullable=False
+    )
+    honorario_base: Mapped[Decimal] = mapped_column(Numeric(10, 2), default=0, server_default="0", nullable=False)
     created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now(), nullable=False)
     updated_at: Mapped[datetime] = mapped_column(
         DateTime, server_default=func.now(), onupdate=func.now(), nullable=False
     )
+
+    tareas: Mapped[list] = relationship("Tarea", back_populates="cliente", lazy="select")

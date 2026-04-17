@@ -28,6 +28,7 @@ class SopDocumento(Base):
     __tablename__ = "sop_documentos"
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    studio_id: Mapped[int] = mapped_column(Integer, ForeignKey("studios.id"), nullable=False, index=True)
     titulo: Mapped[str] = mapped_column(String(255), nullable=False)
     area: Mapped[AreaSop] = mapped_column(Enum(AreaSop, native_enum=False), nullable=False)
     descripcion_proposito: Mapped[str | None] = mapped_column(Text, nullable=True)

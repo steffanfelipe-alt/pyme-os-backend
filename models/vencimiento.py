@@ -7,6 +7,7 @@ from sqlalchemy.orm import Mapped, mapped_column, relationship
 from database import Base
 
 
+
 class TipoVencimiento(str, enum.Enum):
     iva = "iva"
     ddjj_anual = "ddjj_anual"
@@ -29,6 +30,7 @@ class Vencimiento(Base):
     __tablename__ = "vencimientos"
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    studio_id: Mapped[int] = mapped_column(Integer, ForeignKey("studios.id"), nullable=False, index=True)
     cliente_id: Mapped[int] = mapped_column(Integer, ForeignKey("clientes.id"), nullable=False)
     tipo: Mapped[TipoVencimiento] = mapped_column(Enum(TipoVencimiento), nullable=False)
     descripcion: Mapped[str] = mapped_column(String(255), nullable=False)

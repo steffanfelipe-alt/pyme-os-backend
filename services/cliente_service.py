@@ -43,24 +43,28 @@ def _calcular_estado_alerta(
     return EstadoAlerta.verde
 
 
-def crear_cliente(db: Session, data: ClienteCreate) -> Cliente:
+def crear_cliente(db: Session, data: ClienteCreate, studio_id: int) -> Cliente:
     from validaciones import validar_cuit
 
     if not validar_cuit(data.cuit_cuil):
         raise HTTPException(status_code=422, detail="CUIT/CUIL inválido — el dígito verificador no es correcto")
 
-    existente = db.query(Cliente).filter(Cliente.cuit_cuil == data.cuit_cuil).first()
+    existente = db.query(Cliente).filter(
+        Cliente.cuit_cuil == data.cuit_cuil, Cliente.studio_id == studio_id
+    ).first()
     if existente:
         raise HTTPException(status_code=409, detail="Ya existe un cliente con ese CUIT/CUIL")
 
     if data.contador_asignado_id is not None:
         empleado = db.query(Empleado).filter(
-            Empleado.id == data.contador_asignado_id, Empleado.activo == True
+            Empleado.id == data.contador_asignado_id,
+            Empleado.studio_id == studio_id,
+            Empleado.activo == True,
         ).first()
         if not empleado:
             raise HTTPException(status_code=404, detail="Empleado no encontrado o inactivo")
 
-    cliente = Cliente(**data.model_dump())
+    cliente = Cliente(**data.model_dump(), studio_id=studio_id)
     db.add(cliente)
     db.commit()
     db.refresh(cliente)
@@ -69,6 +73,7 @@ def crear_cliente(db: Session, data: ClienteCreate) -> Cliente:
 
 def listar_clientes(
     db: Session,
+    studio_id: int,
     skip: int = 0,
     limit: int = 20,
     tipo_persona: Optional[TipoPersona] = None,
@@ -136,6 +141,7 @@ def listar_clientes(
         sq_act_venc, Cliente.id == sq_act_venc.c.cliente_id
     )
 
+    query = query.filter(Cliente.studio_id == studio_id)
     if activo is not None:
         query = query.filter(Cliente.activo == activo)
     if tipo_persona is not None:
@@ -185,21 +191,27 @@ def listar_clientes(
     return resultados
 
 
-def obtener_cliente(db: Session, cliente_id: int) -> Cliente:
-    cliente = db.query(Cliente).filter(Cliente.id == cliente_id).first()
+def obtener_cliente(db: Session, cliente_id: int, studio_id: int) -> Cliente:
+    cliente = db.query(Cliente).filter(
+        Cliente.id == cliente_id, Cliente.studio_id == studio_id
+    ).first()
     if not cliente:
         raise HTTPException(status_code=404, detail="Cliente no encontrado")
     return cliente
 
 
-def actualizar_cliente(db: Session, cliente_id: int, data: ClienteUpdate) -> Cliente:
-    cliente = obtener_cliente(db, cliente_id)
+def actualizar_cliente(db: Session, cliente_id: int, data: ClienteUpdate, studio_id: int) -> Cliente:
+    cliente = obtener_cliente(db, cliente_id, studio_id)
     cambios = data.model_dump(exclude_unset=True)
 
     if "cuit_cuil" in cambios:
         existente = (
             db.query(Cliente)
-            .filter(Cliente.cuit_cuil == cambios["cuit_cuil"], Cliente.id != cliente_id)
+            .filter(
+                Cliente.cuit_cuil == cambios["cuit_cuil"],
+                Cliente.studio_id == studio_id,
+                Cliente.id != cliente_id,
+            )
             .first()
         )
         if existente:
@@ -213,14 +225,14 @@ def actualizar_cliente(db: Session, cliente_id: int, data: ClienteUpdate) -> Cli
     return cliente
 
 
-def eliminar_cliente(db: Session, cliente_id: int) -> None:
-    cliente = obtener_cliente(db, cliente_id)
+def eliminar_cliente(db: Session, cliente_id: int, studio_id: int) -> None:
+    cliente = obtener_cliente(db, cliente_id, studio_id)
     cliente.activo = False
     cliente.fecha_baja = datetime.now(timezone.utc).replace(tzinfo=None)
     db.commit()
 
 
-async def importar_desde_csv(db: Session, file: UploadFile) -> dict:
+async def importar_desde_csv(db: Session, file: UploadFile, studio_id: int) -> dict:
     """
     Importa clientes desde un CSV.
     Columnas requeridas: tipo_persona, nombre, cuit_cuil, condicion_fiscal
@@ -272,7 +284,7 @@ async def importar_desde_csv(db: Session, file: UploadFile) -> dict:
             continue
 
         try:
-            crear_cliente(db, data)
+            crear_cliente(db, data, studio_id)
             creados += 1
         except HTTPException as e:
             errores.append({"fila": num_fila, "razon": e.detail})
@@ -281,10 +293,10 @@ async def importar_desde_csv(db: Session, file: UploadFile) -> dict:
     return {"creados": creados, "errores": errores}
 
 
-def obtener_ficha_cliente(db: Session, cliente_id: int) -> FichaClienteResponse:
+def obtener_ficha_cliente(db: Session, cliente_id: int, studio_id: int) -> FichaClienteResponse:
     from schemas.cliente import ClienteResponse, ContadorInfo, TareaFicha, VencimientoFicha
 
-    cliente = obtener_cliente(db, cliente_id)
+    cliente = obtener_cliente(db, cliente_id, studio_id)
 
     # Contador principal
     contador_principal = None
@@ -362,6 +374,104 @@ def obtener_ficha_cliente(db: Session, cliente_id: int) -> FichaClienteResponse:
 
     documentos = documento_service.listar_documentos(db, cliente_id)
 
+    # ── Nuevos campos del spec Ficha del Cliente ──────────────────────────────
+    # Alertas activas
+    from models.alerta import AlertaVencimiento
+    alertas_db = db.query(AlertaVencimiento).filter(
+        AlertaVencimiento.cliente_id == cliente_id,
+        AlertaVencimiento.resuelta_at.is_(None),
+        AlertaVencimiento.ignorada_at.is_(None),
+    ).order_by(AlertaVencimiento.created_at.desc()).limit(5).all()
+    alertas_activas = [
+        {
+            "id": a.id,
+            "tipo": a.tipo or "vencimiento",
+            "mensaje": a.mensaje,
+            "severidad": a.nivel,
+            "created_at": a.created_at.isoformat() if a.created_at else None,
+        }
+        for a in alertas_db
+    ]
+
+    # Abono y historial de cobros
+    abono_data = None
+    historial_cobros = []
+    try:
+        from models.abono import Abono, Cobro
+        abono = db.query(Abono).filter(
+            Abono.cliente_id == cliente_id, Abono.activo == True
+        ).first()
+        if abono:
+            cobros = db.query(Cobro).filter(
+                Cobro.abono_id == abono.id,
+            ).order_by(Cobro.created_at.desc()).limit(7).all()
+            cobro_actual = cobros[0] if cobros else None
+            abono_data = {
+                "id": abono.id,
+                "monto": float(abono.monto or 0),
+                "estado": abono.estado.value if hasattr(abono.estado, "value") else str(abono.estado),
+                "cobro_actual": {
+                    "id": cobro_actual.id,
+                    "periodo": getattr(cobro_actual, "periodo", ""),
+                    "estado": cobro_actual.estado.value if hasattr(cobro_actual.estado, "value") else str(cobro_actual.estado),
+                    "fecha_vencimiento": cobro_actual.fecha_vencimiento.isoformat() if getattr(cobro_actual, "fecha_vencimiento", None) else None,
+                } if cobro_actual else None,
+            }
+            historial_cobros = [
+                {
+                    "periodo": getattr(c, "periodo", ""),
+                    "monto": float(c.monto or 0),
+                    "estado": c.estado.value if hasattr(c.estado, "value") else str(c.estado),
+                    "fecha_cobro": c.fecha_cobro.isoformat() if getattr(c, "fecha_cobro", None) else None,
+                }
+                for c in cobros
+            ]
+    except Exception:
+        pass
+
+    # Portal
+    portal_data = None
+    try:
+        from models.portal_usuario import PortalUsuario
+        from models.portal_notificacion import PortalNotificacion
+        pu = db.query(PortalUsuario).filter(PortalUsuario.cliente_id == cliente_id).first()
+        if pu:
+            tareas_portal = db.query(Tarea).filter(
+                Tarea.cliente_id == cliente_id,
+                Tarea.activo == True,
+                Tarea.estado.in_([EstadoTarea.pendiente, EstadoTarea.en_progreso]),
+            ).count()
+            notifs_pendientes = db.query(PortalNotificacion).filter(
+                PortalNotificacion.cliente_id == cliente_id,
+                PortalNotificacion.leida == False,
+            ).count()
+            portal_data = {
+                "usuario_activo": pu.activo,
+                "email_portal": pu.email,
+                "tareas_portal_pendientes": tareas_portal,
+                "notificaciones_pendientes": notifs_pendientes,
+                "ultimo_acceso": pu.ultimo_acceso.isoformat() if pu.ultimo_acceso else None,
+            }
+    except Exception:
+        pass
+
+    # Resumen ejecutivo
+    cobro_estado = "sin_abono"
+    if abono_data and abono_data.get("cobro_actual"):
+        cobro_estado = abono_data["cobro_actual"].get("estado", "sin_abono")
+
+    resumen = {
+        "score_riesgo": getattr(cliente, "score_riesgo", None),
+        "alertas_activas": len(alertas_activas),
+        "vencimientos_proximos_7_dias": sum(1 for v in proximos if 0 <= v.dias_para_vencer <= 7),
+        "tareas_pendientes": len(activas),
+        "cobro_estado": cobro_estado,
+        "honorario_base": float(getattr(cliente, "honorario_base", 0) or 0),
+    }
+
+    # Notas del cliente
+    notas = getattr(cliente, "notas", None)
+
     return FichaClienteResponse(
         cliente=ClienteResponse.model_validate(cliente),
         contador_principal=contador_principal,
@@ -370,4 +480,10 @@ def obtener_ficha_cliente(db: Session, cliente_id: int) -> FichaClienteResponse:
         tareas={"activas": activas, "completadas_recientes": completadas_recientes},
         estado_alerta=alerta,
         documentos=documentos,
+        resumen=resumen,
+        alertas_activas=alertas_activas,
+        abono=abono_data,
+        historial_cobros=historial_cobros,
+        portal=portal_data,
+        notas=notas,
     )

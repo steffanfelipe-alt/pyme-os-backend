@@ -12,20 +12,22 @@ from schemas.tarea import TareaCreate, TareaUpdate
 from services import profitability_service, risk_service
 
 
-def crear_tarea(db: Session, data: TareaCreate) -> Tarea:
+def crear_tarea(db: Session, data: TareaCreate, studio_id: int) -> Tarea:
     if data.cliente_id is not None:
-        cliente = db.query(Cliente).filter(Cliente.id == data.cliente_id, Cliente.activo == True).first()
+        cliente = db.query(Cliente).filter(
+            Cliente.id == data.cliente_id, Cliente.studio_id == studio_id, Cliente.activo == True
+        ).first()
         if not cliente:
             raise HTTPException(status_code=404, detail="Cliente no encontrado")
 
     if data.empleado_id is not None:
         empleado = db.query(Empleado).filter(
-            Empleado.id == data.empleado_id, Empleado.activo == True
+            Empleado.id == data.empleado_id, Empleado.studio_id == studio_id, Empleado.activo == True
         ).first()
         if not empleado:
             raise HTTPException(status_code=404, detail="Empleado no encontrado o inactivo")
 
-    tarea = Tarea(**data.model_dump())
+    tarea = Tarea(**data.model_dump(), studio_id=studio_id)
     db.add(tarea)
     db.commit()
     db.refresh(tarea)
@@ -34,6 +36,7 @@ def crear_tarea(db: Session, data: TareaCreate) -> Tarea:
 
 def listar_tareas(
     db: Session,
+    studio_id: int,
     cliente_id: Optional[int] = None,
     empleado_id: Optional[int] = None,
     estado: Optional[EstadoTarea] = None,
@@ -41,7 +44,7 @@ def listar_tareas(
     skip: int = 0,
     limit: int = 50,
 ) -> list[Tarea]:
-    query = db.query(Tarea).filter(Tarea.activo == True)
+    query = db.query(Tarea).filter(Tarea.studio_id == studio_id, Tarea.activo == True)
     if cliente_id is not None:
         query = query.filter(Tarea.cliente_id == cliente_id)
     if empleado_id is not None:
@@ -53,15 +56,17 @@ def listar_tareas(
     return query.offset(skip).limit(limit).all()
 
 
-def obtener_tarea(db: Session, tarea_id: int) -> Tarea:
-    tarea = db.query(Tarea).filter(Tarea.id == tarea_id, Tarea.activo == True).first()
+def obtener_tarea(db: Session, tarea_id: int, studio_id: int) -> Tarea:
+    tarea = db.query(Tarea).filter(
+        Tarea.id == tarea_id, Tarea.studio_id == studio_id, Tarea.activo == True
+    ).first()
     if not tarea:
         raise HTTPException(status_code=404, detail="Tarea no encontrada")
     return tarea
 
 
-def actualizar_tarea(db: Session, tarea_id: int, data: TareaUpdate) -> Tarea:
-    tarea = obtener_tarea(db, tarea_id)
+def actualizar_tarea(db: Session, tarea_id: int, data: TareaUpdate, studio_id: int) -> Tarea:
+    tarea = obtener_tarea(db, tarea_id, studio_id)
     cambios = data.model_dump(exclude_unset=True)
 
     if cambios.get("estado") == EstadoTarea.completada and not cambios.get("fecha_completada"):
@@ -70,7 +75,7 @@ def actualizar_tarea(db: Session, tarea_id: int, data: TareaUpdate) -> Tarea:
 
     if "empleado_id" in cambios and cambios["empleado_id"] is not None:
         empleado = db.query(Empleado).filter(
-            Empleado.id == cambios["empleado_id"], Empleado.activo == True
+            Empleado.id == cambios["empleado_id"], Empleado.studio_id == studio_id, Empleado.activo == True
         ).first()
         if not empleado:
             raise HTTPException(status_code=404, detail="Empleado no encontrado o inactivo")
@@ -97,11 +102,11 @@ def actualizar_tarea(db: Session, tarea_id: int, data: TareaUpdate) -> Tarea:
     return tarea
 
 
-def asignar_empleado(db: Session, tarea_id: int, empleado_id: Optional[int]) -> Tarea:
-    tarea = obtener_tarea(db, tarea_id)
+def asignar_empleado(db: Session, tarea_id: int, empleado_id: Optional[int], studio_id: int) -> Tarea:
+    tarea = obtener_tarea(db, tarea_id, studio_id)
     if empleado_id is not None:
         empleado = db.query(Empleado).filter(
-            Empleado.id == empleado_id, Empleado.activo == True
+            Empleado.id == empleado_id, Empleado.studio_id == studio_id, Empleado.activo == True
         ).first()
         if not empleado:
             raise HTTPException(status_code=404, detail="Empleado no encontrado o inactivo")
@@ -111,16 +116,16 @@ def asignar_empleado(db: Session, tarea_id: int, empleado_id: Optional[int]) -> 
     return tarea
 
 
-def eliminar_tarea(db: Session, tarea_id: int) -> None:
-    tarea = obtener_tarea(db, tarea_id)
+def eliminar_tarea(db: Session, tarea_id: int, studio_id: int) -> None:
+    tarea = obtener_tarea(db, tarea_id, studio_id)
     tarea.activo = False
     db.commit()
 
 
 # ─── Tracking de tiempo ───────────────────────────────────────────────────────
 
-def iniciar_tarea(db: Session, tarea_id: int, empleado_id: Optional[int]) -> Tarea:
-    tarea = obtener_tarea(db, tarea_id)
+def iniciar_tarea(db: Session, tarea_id: int, empleado_id: Optional[int], studio_id: int) -> Tarea:
+    tarea = obtener_tarea(db, tarea_id, studio_id)
 
     if tarea.estado == EstadoTarea.completada:
         raise HTTPException(status_code=400, detail="No se puede iniciar una tarea ya completada")
@@ -144,8 +149,8 @@ def iniciar_tarea(db: Session, tarea_id: int, empleado_id: Optional[int]) -> Tar
     return tarea
 
 
-def pausar_tarea(db: Session, tarea_id: int) -> Tarea:
-    tarea = obtener_tarea(db, tarea_id)
+def pausar_tarea(db: Session, tarea_id: int, studio_id: int) -> Tarea:
+    tarea = obtener_tarea(db, tarea_id, studio_id)
 
     if tarea.estado != EstadoTarea.en_progreso:
         raise HTTPException(status_code=400, detail="Solo se puede pausar una tarea en curso")
@@ -158,8 +163,8 @@ def pausar_tarea(db: Session, tarea_id: int) -> Tarea:
     return tarea
 
 
-def completar_tarea(db: Session, tarea_id: int) -> Tarea:
-    tarea = obtener_tarea(db, tarea_id)
+def completar_tarea(db: Session, tarea_id: int, studio_id: int) -> Tarea:
+    tarea = obtener_tarea(db, tarea_id, studio_id)
 
     if tarea.estado == EstadoTarea.completada:
         raise HTTPException(status_code=400, detail="La tarea ya está completada")
@@ -184,8 +189,8 @@ def completar_tarea(db: Session, tarea_id: int) -> Tarea:
     return tarea
 
 
-def obtener_tiempo_tarea(db: Session, tarea_id: int) -> dict:
-    tarea = obtener_tarea(db, tarea_id)
+def obtener_tiempo_tarea(db: Session, tarea_id: int, studio_id: int) -> dict:
+    tarea = obtener_tarea(db, tarea_id, studio_id)
     sesiones = (
         db.query(TareaSesion)
         .filter(TareaSesion.tarea_id == tarea_id)
@@ -209,6 +214,53 @@ def obtener_tiempo_tarea(db: Session, tarea_id: int) -> dict:
             for s in sesiones
         ],
     }
+
+
+def clasificar_eisenhower(tareas: list) -> dict:
+    """Clasifica tareas en cuadrantes de Eisenhower según es_urgente e es_importante."""
+    return {
+        "q1_urgente_importante": [t for t in tareas if t.es_urgente and t.es_importante],
+        "q2_no_urgente_importante": [t for t in tareas if not t.es_urgente and t.es_importante],
+        "q3_urgente_no_importante": [t for t in tareas if t.es_urgente and not t.es_importante],
+        "q4_no_urgente_no_importante": [],  # per spec: ambos False van a sin_clasificar
+        "sin_clasificar": [t for t in tareas if not t.es_urgente and not t.es_importante],
+    }
+
+
+def get_matriz_eisenhower(
+    db: Session,
+    studio_id: int,
+    empleado_id: Optional[int] = None,
+    cliente_id: Optional[int] = None,
+) -> dict:
+    """Retorna tareas activas clasificadas en cuadrantes Eisenhower."""
+    query = db.query(Tarea).filter(
+        Tarea.studio_id == studio_id,
+        Tarea.activo == True,
+        Tarea.estado != EstadoTarea.completada,
+    )
+    if empleado_id is not None:
+        query = query.filter(Tarea.empleado_id == empleado_id)
+    if cliente_id is not None:
+        query = query.filter(Tarea.cliente_id == cliente_id)
+    tareas = query.all()
+    return clasificar_eisenhower(tareas)
+
+
+def patch_prioridad_eisenhower(
+    db: Session,
+    tarea_id: int,
+    studio_id: int,
+    es_urgente: bool,
+    es_importante: bool,
+) -> Tarea:
+    """Actualiza es_urgente y es_importante de una tarea. 403 implícito por studio_id."""
+    tarea = obtener_tarea(db, tarea_id, studio_id)
+    tarea.es_urgente = es_urgente
+    tarea.es_importante = es_importante
+    db.commit()
+    db.refresh(tarea)
+    return tarea
 
 
 def _cerrar_sesion_activa(db: Session, tarea_id: int) -> None:

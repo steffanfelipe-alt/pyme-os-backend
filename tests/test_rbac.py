@@ -8,6 +8,7 @@ from auth import create_access_token, hash_password
 from models.cliente import Cliente, CondicionFiscal, TipoPersona
 from models.empleado import Empleado, RolEmpleado
 from models.usuario import Usuario
+from tests.conftest import _get_or_create_studio
 
 
 # ---------------------------------------------------------------------------
@@ -26,6 +27,7 @@ def _crear_cliente(db, nombre: str, cuit: str, contador_id: int | None = None) -
         condicion_fiscal=CondicionFiscal.responsable_inscripto,
         activo=True,
         contador_asignado_id=contador_id,
+        studio_id=_get_or_create_studio(db),
     )
     db.add(cliente)
     db.commit()
@@ -53,8 +55,9 @@ def test_token_incluye_rol(token_dueno):
 def test_dueno_ve_todos_los_clientes(client, db, token_dueno):
     """El dueño recibe todos los clientes del studio."""
     # Crear 2 empleados-contadores
-    emp1 = Empleado(nombre="C1", email="c1@test.com", rol=RolEmpleado.contador, activo=True)
-    emp2 = Empleado(nombre="C2", email="c2@test.com", rol=RolEmpleado.contador, activo=True)
+    studio_id = _get_or_create_studio(db)
+    emp1 = Empleado(nombre="C1", email="c1@test.com", rol=RolEmpleado.contador, activo=True, studio_id=studio_id)
+    emp2 = Empleado(nombre="C2", email="c2@test.com", rol=RolEmpleado.contador, activo=True, studio_id=studio_id)
     db.add_all([emp1, emp2])
     db.flush()
 
@@ -79,7 +82,7 @@ def test_contador_solo_ve_sus_clientes(client, db, token_contador):
     mi_empleado_id = payload["empleado_id"]
 
     # Otro contador
-    otro = Empleado(nombre="Otro", email="otro@test.com", rol=RolEmpleado.contador, activo=True)
+    otro = Empleado(nombre="Otro", email="otro@test.com", rol=RolEmpleado.contador, activo=True, studio_id=_get_or_create_studio(db))
     db.add(otro)
     db.flush()
 
@@ -152,6 +155,7 @@ def test_administrativo_no_puede_eliminar_tarea(client, db, token_administrativo
         titulo="T1",
         tipo=TipoTarea.tarea,
         cliente_id=cliente_test.id,
+        studio_id=cliente_test.studio_id,
         estado=EstadoTarea.pendiente,
         prioridad=PrioridadTarea.media,
         activo=True,
@@ -169,7 +173,7 @@ def test_administrativo_no_puede_eliminar_tarea(client, db, token_administrativo
 
 def test_contador_no_accede_cliente_ajeno(client, db, token_contador):
     """Un contador no puede obtener el detalle de un cliente no asignado a él (403)."""
-    otro = Empleado(nombre="Otro2", email="otro2@test.com", rol=RolEmpleado.contador, activo=True)
+    otro = Empleado(nombre="Otro2", email="otro2@test.com", rol=RolEmpleado.contador, activo=True, studio_id=_get_or_create_studio(db))
     db.add(otro)
     db.flush()
     cliente_ajeno = _crear_cliente(db, "Ajeno", "20-55555555-5", otro.id)

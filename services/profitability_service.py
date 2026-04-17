@@ -25,14 +25,14 @@ def _parse_periodo(periodo: str) -> tuple[date, date]:
     return primer_dia, ultimo_dia
 
 
-def calcular_rentabilidad_periodo(db: Session, periodo: str) -> list[dict]:
+def calcular_rentabilidad_periodo(db: Session, periodo: str, studio_id: int) -> list[dict]:
     """
     Calcula y persiste snapshots de rentabilidad para todos los clientes activos.
     Sobreescribe snapshots existentes del mismo período.
     """
     primer_dia, ultimo_dia = _parse_periodo(periodo)
 
-    clientes = db.query(Cliente).filter(Cliente.activo == True).all()
+    clientes = db.query(Cliente).filter(Cliente.activo == True, Cliente.studio_id == studio_id).all()
     resultados = []
 
     # Tarifa del estudio para calcular margen
@@ -83,6 +83,7 @@ def calcular_rentabilidad_periodo(db: Session, periodo: str) -> list[dict]:
         snapshot = db.query(RentabilidadMensual).filter(
             RentabilidadMensual.cliente_id == cliente.id,
             RentabilidadMensual.periodo == periodo,
+            RentabilidadMensual.studio_id == studio_id,
         ).first()
 
         if snapshot:
@@ -96,6 +97,7 @@ def calcular_rentabilidad_periodo(db: Session, periodo: str) -> list[dict]:
             snapshot.profit_margin_percentage = profit_margin_percentage
         else:
             snapshot = RentabilidadMensual(
+                studio_id=studio_id,
                 cliente_id=cliente.id,
                 periodo=periodo,
                 honorario=honorario or 0.0,
@@ -119,6 +121,7 @@ def calcular_rentabilidad_periodo(db: Session, periodo: str) -> list[dict]:
         prev_snap = db.query(RentabilidadMensual).filter(
             RentabilidadMensual.cliente_id == cliente.id,
             RentabilidadMensual.periodo == prev_periodo,
+            RentabilidadMensual.studio_id == studio_id,
         ).first()
 
         trend = None
@@ -153,7 +156,7 @@ def calcular_rentabilidad_periodo(db: Session, periodo: str) -> list[dict]:
     return resultados
 
 
-def listar_rentabilidad(db: Session, periodo: str) -> list[dict]:
+def listar_rentabilidad(db: Session, periodo: str, studio_id: int) -> list[dict]:
     """
     Retorna snapshots del período ordenados por rentabilidad_hora ascendente.
     Clientes sin honorario configurado aparecen al final.
@@ -165,6 +168,7 @@ def listar_rentabilidad(db: Session, periodo: str) -> list[dict]:
         .join(Cliente, RentabilidadMensual.cliente_id == Cliente.id)
         .filter(
             RentabilidadMensual.periodo == periodo,
+            RentabilidadMensual.studio_id == studio_id,
             Cliente.activo == True,
         )
         .all()
@@ -195,18 +199,21 @@ def listar_rentabilidad(db: Session, periodo: str) -> list[dict]:
     return resultado
 
 
-def historial_cliente(db: Session, cliente_id: int, meses: int = 12) -> list[dict]:
+def historial_cliente(db: Session, cliente_id: int, meses: int = 12, studio_id: int = None) -> list[dict]:
     """Últimos N snapshots de un cliente, ordenados por período descendente."""
-    cliente = db.query(Cliente).filter(
-        Cliente.id == cliente_id,
-        Cliente.activo == True,
-    ).first()
+    filtros = [Cliente.id == cliente_id, Cliente.activo == True]
+    if studio_id is not None:
+        filtros.append(Cliente.studio_id == studio_id)
+    cliente = db.query(Cliente).filter(*filtros).first()
     if not cliente:
         raise HTTPException(status_code=404, detail="Cliente no encontrado")
 
+    snap_filtros = [RentabilidadMensual.cliente_id == cliente_id]
+    if studio_id is not None:
+        snap_filtros.append(RentabilidadMensual.studio_id == studio_id)
     snapshots = (
         db.query(RentabilidadMensual)
-        .filter(RentabilidadMensual.cliente_id == cliente_id)
+        .filter(*snap_filtros)
         .order_by(RentabilidadMensual.periodo.desc())
         .limit(meses)
         .all()

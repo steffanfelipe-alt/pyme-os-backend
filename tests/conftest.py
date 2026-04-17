@@ -14,6 +14,7 @@ from sqlalchemy.pool import StaticPool
 from database import Base, get_db
 from main import app
 from auth import create_access_token, hash_password
+from models.studio import Studio
 from models.usuario import Usuario
 from models.cliente import Cliente, TipoPersona, CondicionFiscal
 from models.empleado import Empleado, RolEmpleado
@@ -81,12 +82,25 @@ def client(db):
     app.dependency_overrides.clear()
 
 
+def _get_or_create_studio(db) -> int:
+    """Obtiene o crea el studio por defecto (id=1) para tests."""
+    studio = db.query(Studio).first()
+    if not studio:
+        studio = Studio(nombre="Studio Test")
+        db.add(studio)
+        db.flush()
+    return studio.id
+
+
 def _crear_token_con_rol(db, email: str, nombre: str, rol: str) -> str:
     """Helper: crea Usuario + Empleado vinculados y retorna JWT con rol y empleado_id."""
+    studio_id = _get_or_create_studio(db)
+
     usuario = Usuario(
         email=email,
         password_hash=hash_password("password123"),
         nombre=nombre,
+        studio_id=studio_id,
     )
     db.add(usuario)
     db.flush()
@@ -96,6 +110,7 @@ def _crear_token_con_rol(db, email: str, nombre: str, rol: str) -> str:
         email=email,
         rol=RolEmpleado(rol),
         activo=True,
+        studio_id=studio_id,
     )
     db.add(empleado)
     db.commit()
@@ -107,6 +122,7 @@ def _crear_token_con_rol(db, email: str, nombre: str, rol: str) -> str:
         "email": usuario.email,
         "rol": rol,
         "empleado_id": empleado.id,
+        "studio_id": studio_id,
     })
 
 
@@ -145,7 +161,9 @@ def token_rrhh(db):
 @pytest.fixture()
 def cliente_test(db):
     """Cliente de prueba persistido en la DB."""
+    studio_id = _get_or_create_studio(db)
     cliente = Cliente(
+        studio_id=studio_id,
         tipo_persona=TipoPersona.juridica,
         nombre="Martínez SRL",
         cuit_cuil="20-12345678-6",  # CUIT con dígito verificador válido
@@ -161,11 +179,13 @@ def cliente_test(db):
 @pytest.fixture()
 def empleado_test(db):
     """Empleado de prueba persistido en la DB."""
+    studio_id = _get_or_create_studio(db)
     empleado = Empleado(
         nombre="Lucas García",
         email="lucas@estudio.com",
         rol=RolEmpleado.contador,
         activo=True,
+        studio_id=studio_id,
     )
     db.add(empleado)
     db.commit()
@@ -177,6 +197,7 @@ def empleado_test(db):
 def vencimiento_test(db, cliente_test):
     """Vencimiento IVA de prueba para el cliente_test."""
     vencimiento = Vencimiento(
+        studio_id=cliente_test.studio_id,
         cliente_id=cliente_test.id,
         tipo=TipoVencimiento.iva,
         descripcion="IVA Marzo 2026",

@@ -13,7 +13,7 @@ from models.proceso import (
 )
 from models.tarea import Tarea, TipoTarea, PrioridadTarea
 from models.studio_config import StudioConfig
-from tests.conftest import _crear_token_con_rol
+from tests.conftest import _crear_token_con_rol, _get_or_create_studio
 
 
 @pytest.fixture()
@@ -128,9 +128,11 @@ def test_umbral_personalizado_activa_recalculo_con_menos_instancias(client, db, 
     from datetime import datetime, timedelta
 
     # Crear 3 instancias completadas manualmente en la DB
+    studio_id = _get_or_create_studio(db)
     for i in range(3):
         inst = ProcesoInstancia(
             template_id=tid,
+            studio_id=studio_id,
             estado=EstadoInstancia.completado,
             fecha_inicio=datetime.utcnow() - timedelta(hours=2),
             fecha_fin=datetime.utcnow(),
@@ -294,7 +296,7 @@ def test_crear_tarea_vinculada_a_paso_instancia(db, cliente_test, template_b1):
 
     # Crear instancia con pasos
     template_id = template_b1["id"]
-    instancia = ProcesoInstancia(template_id=template_id, estado=EstadoInstancia.pendiente)
+    instancia = ProcesoInstancia(template_id=template_id, studio_id=cliente_test.studio_id, estado=EstadoInstancia.pendiente)
     db.add(instancia)
     db.flush()
 
@@ -313,6 +315,7 @@ def test_crear_tarea_vinculada_a_paso_instancia(db, cliente_test, template_b1):
 
     tarea = Tarea(
         cliente_id=cliente_test.id,
+        studio_id=cliente_test.studio_id,
         titulo="Tarea vinculada a paso",
         tipo=TipoTarea.tarea,
         prioridad=PrioridadTarea.media,
@@ -329,6 +332,7 @@ def test_tarea_sin_vinculacion_no_falla(db, cliente_test):
     """Tarea sin proceso_instancia_paso_id se crea normalmente (FK nullable)."""
     tarea = Tarea(
         cliente_id=cliente_test.id,
+        studio_id=cliente_test.studio_id,
         titulo="Tarea sin vinculación",
         tipo=TipoTarea.tarea,
         prioridad=PrioridadTarea.media,

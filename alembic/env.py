@@ -35,6 +35,12 @@ import models.studio
 import models.dashboard_conversation
 import models.assistant_conversation
 import models.email_log
+import models.config_honorarios
+import models.config_calendario
+import models.vencimiento_sugerido
+import models.portal_usuario
+import models.portal_notificacion
+import models.onboarding_pasos
 from modules.asistente import models as _asistente_models  # noqa: F401
 
 target_metadata = Base.metadata

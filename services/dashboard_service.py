@@ -53,11 +53,11 @@ def _color_carga(pct: float) -> str:
     return "rojo"
 
 
-def obtener_dashboard(db: Session, contador_id: Optional[int] = None) -> DashboardResponse:  # noqa: C901
+def obtener_dashboard(db: Session, contador_id: Optional[int] = None, studio_id: int = None) -> DashboardResponse:  # noqa: C901
     hoy = date.today()
     ahora = datetime.now()
     try:
-        return _calcular_dashboard(db, contador_id, hoy, ahora)
+        return _calcular_dashboard(db, contador_id, hoy, ahora, studio_id)
     except Exception as exc:
         logger.error("Error generando dashboard: %s", exc, exc_info=True)
         return DashboardResponse(
@@ -65,7 +65,7 @@ def obtener_dashboard(db: Session, contador_id: Optional[int] = None) -> Dashboa
                 vencimientos_sin_doc=[],
                 clientes_sin_actividad=[],
                 tareas_retrasadas=[],
-                resumen_alertas=ResumenAlertas(criticas=0, advertencias=0, informativas=0),
+                alertas_activas=ResumenAlertas(criticas=0, advertencias=0, informativas=0),
             ),
             bloque_carga=BloqueCarga(
                 carga_por_contador=[],
@@ -85,10 +85,12 @@ def obtener_dashboard(db: Session, contador_id: Optional[int] = None) -> Dashboa
         )
 
 
-def _calcular_dashboard(db: Session, contador_id: Optional[int], hoy: date, ahora: datetime) -> DashboardResponse:
+def _calcular_dashboard(db: Session, contador_id: Optional[int], hoy: date, ahora: datetime, studio_id: int = None) -> DashboardResponse:
 
     # ── filtro base de clientes ──────────────────────────────────────────
     filtro_clientes = [Cliente.activo == True]
+    if studio_id is not None:
+        filtro_clientes.append(Cliente.studio_id == studio_id)
     if contador_id is not None:
         filtro_clientes.append(Cliente.contador_asignado_id == contador_id)
 
@@ -203,7 +205,7 @@ def _calcular_dashboard(db: Session, contador_id: Optional[int], hoy: date, ahor
     ]
 
     # 4. Alertas activas — via alert_service
-    resumen = alert_service.resumen_alertas(db)
+    resumen = alert_service.resumen_alertas(db, studio_id)
 
     bloque_riesgo = BloqueRiesgo(
         vencimientos_sin_docs=vencimientos_sin_docs,
@@ -220,7 +222,10 @@ def _calcular_dashboard(db: Session, contador_id: Optional[int], hoy: date, ahor
     # BLOQUE CARGA
     # ══════════════════════════════════════════════════════════════════════
 
-    empleados_activos = db.query(Empleado).filter(Empleado.activo == True).all()
+    emp_filtros = [Empleado.activo == True]
+    if studio_id is not None:
+        emp_filtros.append(Empleado.studio_id == studio_id)
+    empleados_activos = db.query(Empleado).filter(*emp_filtros).all()
     emp_info = {e.id: e for e in empleados_activos}
 
     # Cálculo de carga inline (workload module eliminado en v2)
@@ -449,7 +454,7 @@ def _calcular_dashboard(db: Session, contador_id: Optional[int], hoy: date, ahor
 
     # Rentabilidad x cliente — via profitability_service (snapshots del período actual)
     periodo_actual = hoy.strftime("%Y-%m")
-    snapshots = profitability_service.listar_rentabilidad(db, periodo_actual)
+    snapshots = profitability_service.listar_rentabilidad(db, periodo_actual, studio_id or 0)
 
     rentabilidad_por_cliente = []
     for s in snapshots:

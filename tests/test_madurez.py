@@ -10,7 +10,7 @@ from models.proceso import (
     ProcesoInstancia, ProcesoTemplate, TipoProceso,
 )
 from models.sop_documento import EstadoSop, SopDocumento
-from tests.conftest import _crear_token_con_rol
+from tests.conftest import _crear_token_con_rol, _get_or_create_studio
 
 
 @pytest.fixture()
@@ -24,12 +24,14 @@ def headers(token_dueno):
 
 
 def _crear_templates(db, cantidad: int) -> list[ProcesoTemplate]:
+    studio_id = _get_or_create_studio(db)
     templates = []
     for i in range(cantidad):
         t = ProcesoTemplate(
             nombre=f"Proceso {i+1}",
             tipo=TipoProceso.liquidacion_iva,
             activo=True,
+            studio_id=studio_id,
         )
         db.add(t)
         templates.append(t)
@@ -41,9 +43,11 @@ def _crear_templates(db, cantidad: int) -> list[ProcesoTemplate]:
 
 def _crear_instancias_completadas(db, template_id: int, cantidad: int):
     """Crea instancias completadas en los últimos 90 días."""
+    studio_id = _get_or_create_studio(db)
     for i in range(cantidad):
         inst = ProcesoInstancia(
             template_id=template_id,
+            studio_id=studio_id,
             estado=EstadoInstancia.completado,
             fecha_inicio=datetime.utcnow() - timedelta(days=5),
             fecha_fin=datetime.utcnow() - timedelta(days=1),
@@ -53,6 +57,7 @@ def _crear_instancias_completadas(db, template_id: int, cantidad: int):
 
 
 def _crear_sops_activos(db, cantidad: int, proceso_id: int = None) -> list[SopDocumento]:
+    studio_id = _get_or_create_studio(db)
     sops = []
     for i in range(cantidad):
         s = SopDocumento(
@@ -61,6 +66,7 @@ def _crear_sops_activos(db, cantidad: int, proceso_id: int = None) -> list[SopDo
             estado=EstadoSop.activo,
             fecha_ultima_revision=datetime.utcnow(),
             proceso_id=proceso_id,
+            studio_id=studio_id,
         )
         db.add(s)
         sops.append(s)
@@ -71,9 +77,11 @@ def _crear_sops_activos(db, cantidad: int, proceso_id: int = None) -> list[SopDo
 
 
 def _crear_automatizaciones_aprobadas(db, template_id: int, cantidad: int):
+    studio_id = _get_or_create_studio(db)
     for i in range(cantidad):
         a = Automatizacion(
             template_id=template_id,
+            studio_id=studio_id,
             ahorro_horas_mes=5.0,
             estado_revision=EstadoRevisionAutomatizacion.aprobada,
             aprobado_at=datetime.utcnow(),

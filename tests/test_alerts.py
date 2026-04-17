@@ -18,9 +18,10 @@ def _seed_docs_requeridos(db):
     db.commit()
 
 
-def _crear_vencimiento(db, cliente_id, dias: int):
+def _crear_vencimiento(db, cliente_id, dias: int, studio_id: int = 1):
     """Vencimiento IVA pendiente con fecha_vencimiento = hoy + dias."""
     venc = Vencimiento(
+        studio_id=studio_id,
         cliente_id=cliente_id,
         tipo=TipoVencimiento.iva,
         descripcion="IVA test",
@@ -33,8 +34,9 @@ def _crear_vencimiento(db, cliente_id, dias: int):
     return venc
 
 
-def _subir_documento(db, cliente_id, tipo: TipoDocumento, periodo: str):
+def _subir_documento(db, cliente_id, tipo: TipoDocumento, periodo: str, studio_id: int = 1):
     doc = Documento(
+        studio_id=studio_id,
         cliente_id=cliente_id,
         nombre_original=f"{tipo.value}_{periodo}.pdf",
         ruta_archivo=f"uploads/test/{tipo.value}.pdf",
@@ -58,10 +60,10 @@ def _periodo(dias: int) -> str:
 def test_alerta_informativa_documentacion_completa(client, auth_headers, db, cliente_test):
     """Vencimiento en 2 días con documentación completa → alerta informativa."""
     _seed_docs_requeridos(db)
-    venc = _crear_vencimiento(db, cliente_test.id, dias=2)
+    venc = _crear_vencimiento(db, cliente_test.id, studio_id=cliente_test.studio_id, dias=2)
     periodo = _periodo(2)
-    _subir_documento(db, cliente_test.id, TipoDocumento.factura, periodo)
-    _subir_documento(db, cliente_test.id, TipoDocumento.ddjj, periodo)
+    _subir_documento(db, cliente_test.id, studio_id=cliente_test.studio_id, tipo=TipoDocumento.factura, periodo=periodo)
+    _subir_documento(db, cliente_test.id, studio_id=cliente_test.studio_id, tipo=TipoDocumento.ddjj, periodo=periodo)
 
     response = client.post("/api/alerts/generate", headers=auth_headers)
     assert response.status_code == 201
@@ -75,10 +77,10 @@ def test_alerta_informativa_documentacion_completa(client, auth_headers, db, cli
 def test_alerta_advertencia_con_faltantes(client, auth_headers, db, cliente_test):
     """Vencimiento en 4 días con documentos faltantes → alerta advertencia."""
     _seed_docs_requeridos(db)
-    venc = _crear_vencimiento(db, cliente_test.id, dias=4)
+    venc = _crear_vencimiento(db, cliente_test.id, studio_id=cliente_test.studio_id, dias=4)
     # Solo un documento de los dos requeridos
     periodo = _periodo(4)
-    _subir_documento(db, cliente_test.id, TipoDocumento.factura, periodo)
+    _subir_documento(db, cliente_test.id, studio_id=cliente_test.studio_id, tipo=TipoDocumento.factura, periodo=periodo)
 
     response = client.post("/api/alerts/generate", headers=auth_headers)
     assert response.status_code == 201
@@ -92,7 +94,7 @@ def test_alerta_advertencia_con_faltantes(client, auth_headers, db, cliente_test
 def test_alerta_critica_con_faltantes(client, auth_headers, db, cliente_test):
     """Vencimiento en 2 días con documentos faltantes → alerta critica."""
     _seed_docs_requeridos(db)
-    venc = _crear_vencimiento(db, cliente_test.id, dias=2)
+    venc = _crear_vencimiento(db, cliente_test.id, studio_id=cliente_test.studio_id, dias=2)
     # Sin documentos
 
     response = client.post("/api/alerts/generate", headers=auth_headers)
@@ -107,10 +109,10 @@ def test_alerta_critica_con_faltantes(client, auth_headers, db, cliente_test):
 def test_sin_alerta_fuera_del_umbral(client, auth_headers, db, cliente_test):
     """Vencimiento con más de 5 días y documentación completa → no genera alerta."""
     _seed_docs_requeridos(db)
-    venc = _crear_vencimiento(db, cliente_test.id, dias=10)
+    venc = _crear_vencimiento(db, cliente_test.id, studio_id=cliente_test.studio_id, dias=10)
     periodo = _periodo(10)
-    _subir_documento(db, cliente_test.id, TipoDocumento.factura, periodo)
-    _subir_documento(db, cliente_test.id, TipoDocumento.ddjj, periodo)
+    _subir_documento(db, cliente_test.id, studio_id=cliente_test.studio_id, tipo=TipoDocumento.factura, periodo=periodo)
+    _subir_documento(db, cliente_test.id, studio_id=cliente_test.studio_id, tipo=TipoDocumento.ddjj, periodo=periodo)
 
     response = client.post("/api/alerts/generate", headers=auth_headers)
     assert response.status_code == 201
@@ -122,7 +124,7 @@ def test_sin_alerta_fuera_del_umbral(client, auth_headers, db, cliente_test):
 def test_generar_dos_veces_no_duplica(client, auth_headers, db, cliente_test):
     """Generar alertas dos veces para el mismo vencimiento → solo una alerta, actualizada."""
     _seed_docs_requeridos(db)
-    venc = _crear_vencimiento(db, cliente_test.id, dias=2)
+    venc = _crear_vencimiento(db, cliente_test.id, studio_id=cliente_test.studio_id, dias=2)
 
     client.post("/api/alerts/generate", headers=auth_headers)
     client.post("/api/alerts/generate", headers=auth_headers)
@@ -138,10 +140,10 @@ def test_resumen_alertas_conteos(client, auth_headers, db, cliente_test):
     """GET /api/alerts/summary retorna los tres conteos correctamente."""
     _seed_docs_requeridos(db)
     # Critica: 2 días sin docs
-    _crear_vencimiento(db, cliente_test.id, dias=2)
+    _crear_vencimiento(db, cliente_test.id, studio_id=cliente_test.studio_id, dias=2)
     # Advertencia: 4 días con un doc faltante
-    venc_adv = _crear_vencimiento(db, cliente_test.id, dias=4)
-    _subir_documento(db, cliente_test.id, TipoDocumento.factura, _periodo(4))
+    venc_adv = _crear_vencimiento(db, cliente_test.id, studio_id=cliente_test.studio_id, dias=4)
+    _subir_documento(db, cliente_test.id, studio_id=cliente_test.studio_id, tipo=TipoDocumento.factura, periodo=_periodo(4))
 
     client.post("/api/alerts/generate", headers=auth_headers)
 
@@ -158,7 +160,7 @@ def test_resumen_alertas_conteos(client, auth_headers, db, cliente_test):
 def test_resolver_alerta(client, auth_headers, db, cliente_test):
     """PATCH /api/alerts/{id}/resolve marca la alerta como resuelta."""
     _seed_docs_requeridos(db)
-    _crear_vencimiento(db, cliente_test.id, dias=2)
+    _crear_vencimiento(db, cliente_test.id, studio_id=cliente_test.studio_id, dias=2)
 
     gen = client.post("/api/alerts/generate", headers=auth_headers)
     assert gen.status_code == 201

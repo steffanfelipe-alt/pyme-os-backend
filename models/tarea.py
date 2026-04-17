@@ -35,6 +35,7 @@ class Tarea(Base):
     __tablename__ = "tareas"
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    studio_id: Mapped[int] = mapped_column(Integer, ForeignKey("studios.id"), nullable=False, index=True)
     cliente_id: Mapped[int | None] = mapped_column(Integer, ForeignKey("clientes.id"), nullable=True)
     empleado_id: Mapped[int | None] = mapped_column(
         Integer, ForeignKey("empleados.id"), nullable=True
@@ -54,6 +55,8 @@ class Tarea(Base):
     horas_reales: Mapped[float | None] = mapped_column(Float, nullable=True)
     notas: Mapped[str | None] = mapped_column(Text, nullable=True)
     activo: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
+    es_urgente: Mapped[bool] = mapped_column(Boolean, default=False, server_default="false", nullable=False)
+    es_importante: Mapped[bool] = mapped_column(Boolean, default=False, server_default="false", nullable=False)
     created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now(), nullable=False)
     updated_at: Mapped[datetime] = mapped_column(
         DateTime, server_default=func.now(), onupdate=func.now(), nullable=False
@@ -66,7 +69,7 @@ class Tarea(Base):
 
     sesiones = relationship("TareaSesion", back_populates="tarea", cascade="all, delete-orphan")
 
-    cliente = relationship("Cliente", foreign_keys=[cliente_id], lazy="joined")
+    cliente = relationship("Cliente", foreign_keys=[cliente_id], lazy="joined", back_populates="tareas")
     empleado_rel = relationship("Empleado", foreign_keys=[empleado_id], lazy="joined")
 
     @property

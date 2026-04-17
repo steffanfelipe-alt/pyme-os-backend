@@ -10,6 +10,7 @@ import pytest
 from models.cliente import Cliente, CondicionFiscal, TipoPersona
 from models.email_entrante import EmailEntrante
 from models.empleado import Empleado, RolEmpleado
+from tests.conftest import _get_or_create_studio
 
 
 # ---------------------------------------------------------------------------
@@ -21,13 +22,15 @@ def _headers(token: str) -> dict:
 
 
 def _crear_empleado(db, nombre: str, email: str, rol: RolEmpleado) -> Empleado:
-    e = Empleado(nombre=nombre, email=email, rol=rol, activo=True)
+    studio_id = _get_or_create_studio(db)
+    e = Empleado(nombre=nombre, email=email, rol=rol, activo=True, studio_id=studio_id)
     db.add(e)
     db.flush()
     return e
 
 
 def _crear_cliente(db, nombre: str, cuit: str, contador_id: int | None = None) -> Cliente:
+    studio_id = _get_or_create_studio(db)
     c = Cliente(
         tipo_persona=TipoPersona.juridica,
         nombre=nombre,
@@ -35,6 +38,7 @@ def _crear_cliente(db, nombre: str, cuit: str, contador_id: int | None = None) -
         condicion_fiscal=CondicionFiscal.responsable_inscripto,
         activo=True,
         contador_asignado_id=contador_id,
+        studio_id=studio_id,
     )
     db.add(c)
     db.flush()

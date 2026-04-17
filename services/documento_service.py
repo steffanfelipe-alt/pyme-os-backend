@@ -162,10 +162,13 @@ async def subir_documento(
     db: Session,
     cliente_id: int,
     file: UploadFile,
+    studio_id: int,
     vencimiento_id: Optional[int] = None,
 ) -> DocumentoResponse:
-    # Validar cliente
-    cliente = db.query(Cliente).filter(Cliente.id == cliente_id, Cliente.activo == True).first()
+    # Validar cliente (filtrado por studio)
+    cliente = db.query(Cliente).filter(
+        Cliente.id == cliente_id, Cliente.studio_id == studio_id, Cliente.activo == True
+    ).first()
     if not cliente:
         raise HTTPException(status_code=404, detail="Cliente no encontrado")
 
@@ -173,6 +176,7 @@ async def subir_documento(
     if vencimiento_id is not None:
         venc = db.query(Vencimiento).filter(
             Vencimiento.id == vencimiento_id,
+            Vencimiento.studio_id == studio_id,
             Vencimiento.cliente_id == cliente_id,
         ).first()
         if not venc:
@@ -218,6 +222,7 @@ async def subir_documento(
 
     # Crear registro en DB con estado pendiente
     doc = Documento(
+        studio_id=studio_id,
         cliente_id=cliente_id,
         vencimiento_id=vencimiento_id,
         nombre_original=nombre_original,
@@ -294,18 +299,19 @@ async def subir_documento(
     return DocumentoResponse.model_validate(doc)
 
 
-def listar_documentos(db: Session, cliente_id: int) -> list[DocumentoResponse]:
-    docs = (
-        db.query(Documento)
-        .filter(Documento.cliente_id == cliente_id, Documento.activo == True)
-        .order_by(Documento.created_at.desc())
-        .all()
-    )
+def listar_documentos(db: Session, cliente_id: int, studio_id: int | None = None) -> list[DocumentoResponse]:
+    query = db.query(Documento).filter(Documento.cliente_id == cliente_id, Documento.activo == True)
+    if studio_id is not None:
+        query = query.filter(Documento.studio_id == studio_id)
+    docs = query.order_by(Documento.created_at.desc()).all()
     return [DocumentoResponse.model_validate(d) for d in docs]
 
 
-def actualizar_documento(db: Session, doc_id: int, data: DocumentoUpdate) -> DocumentoResponse:
-    doc = db.query(Documento).filter(Documento.id == doc_id, Documento.activo == True).first()
+def actualizar_documento(db: Session, doc_id: int, data: DocumentoUpdate, studio_id: int | None = None) -> DocumentoResponse:
+    query = db.query(Documento).filter(Documento.id == doc_id, Documento.activo == True)
+    if studio_id is not None:
+        query = query.filter(Documento.studio_id == studio_id)
+    doc = query.first()
     if not doc:
         raise HTTPException(status_code=404, detail="Documento no encontrado")
     for campo, valor in data.model_dump(exclude_unset=True).items():
@@ -318,8 +324,11 @@ def actualizar_documento(db: Session, doc_id: int, data: DocumentoUpdate) -> Doc
     return DocumentoResponse.model_validate(doc)
 
 
-def eliminar_documento(db: Session, doc_id: int) -> None:
-    doc = db.query(Documento).filter(Documento.id == doc_id, Documento.activo == True).first()
+def eliminar_documento(db: Session, doc_id: int, studio_id: int | None = None) -> None:
+    query = db.query(Documento).filter(Documento.id == doc_id, Documento.activo == True)
+    if studio_id is not None:
+        query = query.filter(Documento.studio_id == studio_id)
+    doc = query.first()
     if not doc:
         raise HTTPException(status_code=404, detail="Documento no encontrado")
     # Hard delete: borrar archivo físico
@@ -453,15 +462,16 @@ def obtener_checklist(
     db: Session,
     cliente_id: int,
     periodo: str,  # formato "YYYY-MM"
+    studio_id: int | None = None,
 ) -> dict:
     """
     Dado un cliente y un período fiscal, retorna qué documentos
     llegaron y cuáles faltan para cubrir los vencimientos activos.
     """
-    cliente = db.query(Cliente).filter(
-        Cliente.id == cliente_id,
-        Cliente.activo == True,
-    ).first()
+    query = db.query(Cliente).filter(Cliente.id == cliente_id, Cliente.activo == True)
+    if studio_id is not None:
+        query = query.filter(Cliente.studio_id == studio_id)
+    cliente = query.first()
     if not cliente:
         raise HTTPException(status_code=404, detail="Cliente no encontrado")
 

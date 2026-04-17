@@ -18,12 +18,14 @@ from schemas.empleado import (
 from schemas.cliente import TareaFicha
 
 
-def crear_empleado(db: Session, data: EmpleadoCreate) -> Empleado:
-    existente = db.query(Empleado).filter(Empleado.email == data.email).first()
+def crear_empleado(db: Session, data: EmpleadoCreate, studio_id: int) -> Empleado:
+    existente = db.query(Empleado).filter(
+        Empleado.email == data.email, Empleado.studio_id == studio_id
+    ).first()
     if existente:
         raise HTTPException(status_code=409, detail="Ya existe un empleado con ese email")
 
-    empleado = Empleado(**data.model_dump())
+    empleado = Empleado(**data.model_dump(), studio_id=studio_id)
     db.add(empleado)
     db.commit()
     db.refresh(empleado)
@@ -32,31 +34,38 @@ def crear_empleado(db: Session, data: EmpleadoCreate) -> Empleado:
 
 def listar_empleados(
     db: Session,
+    studio_id: int,
     skip: int = 0,
     limit: int = 50,
     activo: Optional[bool] = True,
 ) -> list[Empleado]:
-    query = db.query(Empleado)
+    query = db.query(Empleado).filter(Empleado.studio_id == studio_id)
     if activo is not None:
         query = query.filter(Empleado.activo == activo)
     return query.offset(skip).limit(limit).all()
 
 
-def obtener_empleado(db: Session, empleado_id: int) -> Empleado:
-    empleado = db.query(Empleado).filter(Empleado.id == empleado_id).first()
+def obtener_empleado(db: Session, empleado_id: int, studio_id: int) -> Empleado:
+    empleado = db.query(Empleado).filter(
+        Empleado.id == empleado_id, Empleado.studio_id == studio_id
+    ).first()
     if not empleado:
         raise HTTPException(status_code=404, detail="Empleado no encontrado")
     return empleado
 
 
-def actualizar_empleado(db: Session, empleado_id: int, data: EmpleadoUpdate) -> Empleado:
-    empleado = obtener_empleado(db, empleado_id)
+def actualizar_empleado(db: Session, empleado_id: int, data: EmpleadoUpdate, studio_id: int) -> Empleado:
+    empleado = obtener_empleado(db, empleado_id, studio_id)
     cambios = data.model_dump(exclude_unset=True)
 
     if "email" in cambios:
         existente = (
             db.query(Empleado)
-            .filter(Empleado.email == cambios["email"], Empleado.id != empleado_id)
+            .filter(
+                Empleado.email == cambios["email"],
+                Empleado.studio_id == studio_id,
+                Empleado.id != empleado_id,
+            )
             .first()
         )
         if existente:
@@ -70,8 +79,8 @@ def actualizar_empleado(db: Session, empleado_id: int, data: EmpleadoUpdate) -> 
     return empleado
 
 
-def eliminar_empleado(db: Session, empleado_id: int) -> None:
-    empleado = obtener_empleado(db, empleado_id)
+def eliminar_empleado(db: Session, empleado_id: int, studio_id: int) -> None:
+    empleado = obtener_empleado(db, empleado_id, studio_id)
     empleado.activo = False
     db.commit()
 
@@ -84,8 +93,8 @@ def _color_carga(pct: float) -> str:
     return "rojo"
 
 
-def listar_carga_empleados(db: Session) -> list[CargaResumenEmpleado]:
-    empleados = db.query(Empleado).filter(Empleado.activo == True).all()
+def listar_carga_empleados(db: Session, studio_id: int) -> list[CargaResumenEmpleado]:
+    empleados = db.query(Empleado).filter(Empleado.studio_id == studio_id, Empleado.activo == True).all()
     resultado = []
     for emp in empleados:
         pend = db.query(func.count(Tarea.id)).filter(
@@ -121,8 +130,8 @@ def listar_carga_empleados(db: Session) -> list[CargaResumenEmpleado]:
     return resultado
 
 
-def obtener_carga_empleado(db: Session, empleado_id: int) -> CargaDetalleEmpleado:
-    empleado = obtener_empleado(db, empleado_id)
+def obtener_carga_empleado(db: Session, empleado_id: int, studio_id: int) -> CargaDetalleEmpleado:
+    empleado = obtener_empleado(db, empleado_id, studio_id)
     hoy = date.today()
 
     tareas_activas = (

@@ -88,7 +88,7 @@ async def generar_interpretacion_background(informe_id: int) -> None:
         logger.error("Error generando ai_interpretation para informe id=%d: %s", informe_id, e)
 
 
-def generar_informe(db: Session, periodo: str, generado_por_id: int | None = None) -> dict:
+def generar_informe(db: Session, periodo: str, generado_por_id: int | None = None, studio_id: int = None) -> dict:
     """
     Consolida datos del período en un InformeEjecutivo y lo persiste.
     Si ya existe un informe para ese período, lo sobreescribe.
@@ -96,10 +96,13 @@ def generar_informe(db: Session, periodo: str, generado_por_id: int | None = Non
     primer_dia, ultimo_dia = _parse_periodo(periodo)
 
     # --- Vencimientos del período ---
-    vencimientos = db.query(Vencimiento).filter(
+    venc_f = [
         Vencimiento.fecha_vencimiento >= primer_dia,
         Vencimiento.fecha_vencimiento <= ultimo_dia,
-    ).all()
+    ]
+    if studio_id is not None:
+        venc_f.append(Vencimiento.studio_id == studio_id)
+    vencimientos = db.query(Vencimiento).filter(*venc_f).all()
     conteo_estados = {}
     for v in vencimientos:
         estado = v.estado.value if hasattr(v.estado, "value") else str(v.estado)
@@ -110,7 +113,7 @@ def generar_informe(db: Session, periodo: str, generado_por_id: int | None = Non
     }
 
     # --- Rentabilidad del período ---
-    snapshots = profitability_service.listar_rentabilidad(db, periodo)
+    snapshots = profitability_service.listar_rentabilidad(db, periodo, studio_id or 0)
     horas_totales = sum(s["horas_reales"] for s in snapshots)
     con_rentabilidad = [s for s in snapshots if s["rentabilidad_hora"] is not None]
     avg_rentabilidad = (
@@ -125,10 +128,10 @@ def generar_informe(db: Session, periodo: str, generado_por_id: int | None = Non
     }
 
     # --- Alertas ---
-    resumen_alertas = alert_service.resumen_alertas(db)
+    resumen_alertas = alert_service.resumen_alertas(db, studio_id)
 
     # --- Riesgo ---
-    clientes_riesgo = risk_service.listar_clientes_por_riesgo(db)
+    clientes_riesgo = risk_service.listar_clientes_por_riesgo(db, studio_id)
     conteo_riesgo = {"verde": 0, "amarillo": 0, "rojo": 0, "sin_calcular": 0}
     for c in clientes_riesgo:
         nivel = c["risk_level"] or "sin_calcular"
@@ -139,7 +142,10 @@ def generar_informe(db: Session, periodo: str, generado_por_id: int | None = Non
     resumen_riesgo = conteo_riesgo
 
     # --- Totales desnormalizados ---
-    total_clientes_activos = db.query(Cliente).filter(Cliente.activo == True).count()
+    cli_f = [Cliente.activo == True]
+    if studio_id is not None:
+        cli_f.append(Cliente.studio_id == studio_id)
+    total_clientes_activos = db.query(Cliente).filter(*cli_f).count()
     alertas_criticas = resumen_alertas.get("criticas", 0)
     clientes_riesgo_rojo = conteo_riesgo["rojo"]
 

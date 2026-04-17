@@ -50,8 +50,10 @@ def crear_automatizacion_python(
     db: Session,
     data: AutomatizacionPythonCreate,
     empleado_id: Optional[int] = None,
+    studio_id: int = None,
 ) -> AutomatizacionPython:
     auto = AutomatizacionPython(
+        studio_id=studio_id,
         nombre=data.nombre,
         descripcion=data.descripcion,
         creado_por_id=empleado_id,
@@ -64,17 +66,23 @@ def crear_automatizacion_python(
     return auto
 
 
-def listar_automatizaciones_python(db: Session) -> list[AutomatizacionPython]:
+def listar_automatizaciones_python(db: Session, studio_id: int = None) -> list[AutomatizacionPython]:
+    filtros = [AutomatizacionPython.estado != EstadoAutomatizacionPython.archivado]
+    if studio_id is not None:
+        filtros.append(AutomatizacionPython.studio_id == studio_id)
     return (
         db.query(AutomatizacionPython)
-        .filter(AutomatizacionPython.estado != EstadoAutomatizacionPython.archivado)
+        .filter(*filtros)
         .order_by(AutomatizacionPython.updated_at.desc())
         .all()
     )
 
 
-def obtener_automatizacion_python(db: Session, auto_id: int) -> AutomatizacionPython:
-    auto = db.query(AutomatizacionPython).filter(AutomatizacionPython.id == auto_id).first()
+def obtener_automatizacion_python(db: Session, auto_id: int, studio_id: int = None) -> AutomatizacionPython:
+    filtros = [AutomatizacionPython.id == auto_id]
+    if studio_id is not None:
+        filtros.append(AutomatizacionPython.studio_id == studio_id)
+    auto = db.query(AutomatizacionPython).filter(*filtros).first()
     if not auto:
         raise HTTPException(status_code=404, detail="Automatización Python no encontrada.")
     return auto
@@ -150,6 +158,7 @@ async def generar_grafo_desde_descripcion(
     descripcion: str,
     nombre: Optional[str],
     empleado_id: Optional[int],
+    studio_id: int = None,
 ) -> AutomatizacionPython:
     """
     Usa Claude para generar un grafo de nodos Python a partir de una descripción textual.
@@ -220,6 +229,7 @@ Descripción de la automatización:
         )
 
     auto = AutomatizacionPython(
+        studio_id=studio_id,
         nombre=nombre or datos.get("nombre", "Nueva automatización"),
         descripcion=datos.get("descripcion"),
         creado_por_id=empleado_id,

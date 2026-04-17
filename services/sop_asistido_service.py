@@ -42,8 +42,9 @@ def _limpiar_json(raw: str) -> dict:
 
 # ─── CRUD básico ──────────────────────────────────────────────────────────────
 
-def crear_sop(db: Session, data: SopDocumentoCreate, empleado_id: Optional[int]) -> SopDocumento:
+def crear_sop(db: Session, data: SopDocumentoCreate, empleado_id: Optional[int], studio_id: int = None) -> SopDocumento:
     sop = SopDocumento(
+        studio_id=studio_id,
         titulo=data.titulo,
         area=data.area,
         descripcion_proposito=data.descripcion_proposito,
@@ -79,8 +80,11 @@ def listar_sops(
     area: Optional[AreaSop] = None,
     estado: Optional[EstadoSop] = None,
     empleado_id: Optional[int] = None,
+    studio_id: int = None,
 ) -> list[SopDocumento]:
     query = db.query(SopDocumento)
+    if studio_id is not None:
+        query = query.filter(SopDocumento.studio_id == studio_id)
     if area is not None:
         query = query.filter(SopDocumento.area == area)
     if estado is not None:
@@ -100,9 +104,12 @@ def listar_sops_con_visibilidad(
     empleado_id: Optional[int],
     area: Optional[AreaSop] = None,
     estado: Optional[EstadoSop] = None,
+    studio_id: int = None,
 ) -> list[SopDocumento]:
     """Aplica reglas de visibilidad: activos visible a todos; borradores/archivados solo a creador/responsable."""
     query = db.query(SopDocumento)
+    if studio_id is not None:
+        query = query.filter(SopDocumento.studio_id == studio_id)
     if area is not None:
         query = query.filter(SopDocumento.area == area)
 
@@ -230,6 +237,7 @@ async def generar_sop_desde_descripcion(
     descripcion: str,
     area: Optional[AreaSop],
     empleado_id: Optional[int],
+    studio_id: int = None,
 ) -> SopDocumento:
     prompt = (
         f'El JSON debe tener esta estructura exacta: {{'
@@ -288,7 +296,7 @@ async def generar_sop_desde_descripcion(
         resultado_esperado=datos.get("resultado_esperado"),
         pasos=pasos_create,
     )
-    return crear_sop(db, doc_data, empleado_id)
+    return crear_sop(db, doc_data, empleado_id, studio_id)
 
 
 # ─── Integración con automatizaciones ─────────────────────────────────────────
@@ -365,20 +373,29 @@ async def generar_automatizacion_desde_sop(db: Session, sop_id: int) -> Automati
 
 # ─── Biblioteca ───────────────────────────────────────────────────────────────
 
-def listar_biblioteca(db: Session) -> list[dict]:
+def listar_biblioteca(db: Session, studio_id: int = None) -> list[dict]:
     from models.empleado import Empleado
 
+    filtros = [SopDocumento.estado == EstadoSop.activo]
+    if studio_id is not None:
+        filtros.append(SopDocumento.studio_id == studio_id)
     sops = (
         db.query(SopDocumento)
-        .filter(SopDocumento.estado == EstadoSop.activo)
+        .filter(*filtros)
         .order_by(SopDocumento.titulo)
         .all()
     )
 
-    empleados_idx = {e.id: e.nombre for e in db.query(Empleado).all()}
+    emp_filtros = [Empleado.activo == True]
+    if studio_id is not None:
+        emp_filtros.append(Empleado.studio_id == studio_id)
+    empleados_idx = {e.id: e.nombre for e in db.query(Empleado).filter(*emp_filtros).all()}
+    tmpl_filtros = [ProcesoTemplate.activo == True]
+    if studio_id is not None:
+        tmpl_filtros.append(ProcesoTemplate.studio_id == studio_id)
     templates_idx = {
         t.id: {"id": t.id, "nombre": t.nombre}
-        for t in db.query(ProcesoTemplate).all()
+        for t in db.query(ProcesoTemplate).filter(*tmpl_filtros).all()
     }
 
     resultado = []

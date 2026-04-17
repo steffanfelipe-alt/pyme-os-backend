@@ -1,13 +1,14 @@
 import csv
 import io
+from datetime import date
 from typing import Optional
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Query
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, EmailStr
 from sqlalchemy.orm import Session
 
-from auth_dependencies import solo_dueno
+from auth_dependencies import get_studio_id, require_rol, solo_dueno
 from database import get_db
 from models.vencimiento import EstadoVencimiento
 from services import reportes_service
@@ -77,12 +78,13 @@ def reporte_carga(
     periodo: Optional[str] = None,
     db: Session = Depends(get_db),
     current_user: dict = Depends(solo_dueno),
+    studio_id: int = Depends(get_studio_id),
 ):
     """
     Carga de trabajo por empleado para el período YYYY-MM.
     Si no se envía período, usa el mes actual.
     """
-    return reportes_service.reporte_carga(db, periodo)
+    return reportes_service.reporte_carga(db, periodo, studio_id)
 
 
 # ─── Reporte 2: Rentabilidad por cliente ─────────────────────────────────────
@@ -92,12 +94,13 @@ def reporte_rentabilidad(
     periodo: Optional[str] = None,
     db: Session = Depends(get_db),
     current_user: dict = Depends(solo_dueno),
+    studio_id: int = Depends(get_studio_id),
 ):
     """
     Rentabilidad por cliente usando horas reales de procesos + tarifa-hora configurada.
     Requiere tarifa-hora configurada en /reportes/config.
     """
-    return reportes_service.reporte_rentabilidad(db, periodo)
+    return reportes_service.reporte_rentabilidad(db, periodo, studio_id)
 
 
 # ─── Reporte 3: Vencimientos del período ─────────────────────────────────────
@@ -108,12 +111,13 @@ def reporte_vencimientos(
     estado: Optional[EstadoVencimiento] = None,
     db: Session = Depends(get_db),
     current_user: dict = Depends(solo_dueno),
+    studio_id: int = Depends(get_studio_id),
 ):
     """
     Vencimientos del período con alertas para los que vencen en <= 7 días.
     Filtro opcional por estado.
     """
-    return reportes_service.reporte_vencimientos(db, periodo, estado)
+    return reportes_service.reporte_vencimientos(db, periodo, estado, studio_id)
 
 
 # ─── Reporte 4: Eficiencia de procesos ───────────────────────────────────────
@@ -123,12 +127,13 @@ def reporte_procesos(
     periodo: Optional[str] = None,
     db: Session = Depends(get_db),
     current_user: dict = Depends(solo_dueno),
+    studio_id: int = Depends(get_studio_id),
 ):
     """
     Eficiencia de procesos: desviación entre tiempo estimado y real.
     Solo incluye procesos con 5+ instancias completadas en el período.
     """
-    return reportes_service.reporte_procesos(db, periodo)
+    return reportes_service.reporte_procesos(db, periodo, studio_id)
 
 
 # ─── Resumen ejecutivo ────────────────────────────────────────────────────────
@@ -138,24 +143,26 @@ def reporte_resumen(
     periodo: Optional[str] = None,
     db: Session = Depends(get_db),
     current_user: dict = Depends(solo_dueno),
+    studio_id: int = Depends(get_studio_id),
 ):
     """
     Resumen ejecutivo consolidado de los 4 reportes.
     Consume datos ya calculados — no recalcula todo de cero.
     """
-    return reportes_service.reporte_resumen(db, periodo)
+    return reportes_service.reporte_resumen(db, periodo, studio_id)
 
 
 @router.get("/madurez")
 def reporte_madurez(
     db: Session = Depends(get_db),
     current_user: dict = Depends(solo_dueno),
+    studio_id: int = Depends(get_studio_id),
 ):
     """
     Diagnóstico de madurez del estudio según las 4 etapas de SYSTEMology:
     Survival / Stationary / Scalable / Saleable.
     """
-    return reportes_service.reporte_madurez(db)
+    return reportes_service.reporte_madurez(db, studio_id)
 
 
 # ─── Exports CSV ─────────────────────────────────────────────────────────────
@@ -256,3 +263,31 @@ def exportar_carga_csv(
         media_type="text/csv",
         headers={"Content-Disposition": f"attachment; filename={filename}"},
     )
+
+
+# ─── Reporte D2: Rentabilidad por tipo de cliente ────────────────────────────
+
+@router.get("/rentabilidad-por-tipo")
+def rentabilidad_por_tipo(
+    db: Session = Depends(get_db),
+    current_user: dict = Depends(require_rol("dueno", "contador", "administrativo")),
+    studio_id: int = Depends(get_studio_id),
+):
+    """Agrupa la rentabilidad por tipo_cliente."""
+    return reportes_service.rentabilidad_por_tipo(db, studio_id)
+
+
+# ─── Reporte D3: Tiempo real por cliente ─────────────────────────────────────
+
+@router.get("/tiempo-por-cliente")
+def tiempo_por_cliente(
+    fecha_desde: date = Query(..., description="Fecha de inicio (YYYY-MM-DD)"),
+    fecha_hasta: date = Query(..., description="Fecha de fin (YYYY-MM-DD)"),
+    db: Session = Depends(get_db),
+    current_user: dict = Depends(require_rol("dueno", "contador", "administrativo")),
+    studio_id: int = Depends(get_studio_id),
+):
+    """Tiempo real dedicado por cliente en el rango de fechas. Ordenado por mayor dedicación."""
+    if fecha_desde > fecha_hasta:
+        raise HTTPException(status_code=422, detail="fecha_desde debe ser anterior a fecha_hasta")
+    return reportes_service.tiempo_por_cliente(db, studio_id, fecha_desde, fecha_hasta)
