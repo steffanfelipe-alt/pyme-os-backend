@@ -5,7 +5,7 @@ from sqlalchemy.orm import Session
 
 from models.cliente import Cliente
 from models.rentabilidad import RentabilidadMensual
-from models.studio_config import StudioConfig
+from models.studio import Studio
 from models.tarea import EstadoTarea, Tarea
 
 
@@ -36,8 +36,8 @@ def calcular_rentabilidad_periodo(db: Session, periodo: str, studio_id: int) -> 
     resultados = []
 
     # Tarifa del estudio para calcular margen
-    studio_config = db.query(StudioConfig).first()
-    tarifa_hora = float(studio_config.tarifa_hora_pesos) if studio_config and studio_config.tarifa_hora_pesos else None
+    studio = db.query(Studio).filter(Studio.id == studio_id).first()
+    tarifa_hora = float(studio.tarifa_horaria_interna) if studio and studio.tarifa_horaria_interna else None
 
     for cliente in clientes:
         tareas = db.query(Tarea).filter(
