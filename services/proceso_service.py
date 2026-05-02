@@ -204,10 +204,12 @@ def agregar_paso(db: Session, template_id: int, data: ProcesoPasoTemplateCreate,
     return paso
 
 
-def actualizar_paso(db: Session, paso_id: int, data: ProcesoPasoTemplateUpdate) -> ProcesoPasoTemplate:
+def actualizar_paso(db: Session, paso_id: int, data: ProcesoPasoTemplateUpdate, studio_id: int = None) -> ProcesoPasoTemplate:
     paso = db.query(ProcesoPasoTemplate).filter(ProcesoPasoTemplate.id == paso_id).first()
     if not paso:
         raise HTTPException(status_code=404, detail="Paso no encontrado")
+    if studio_id is not None:
+        obtener_template(db, paso.template_id, studio_id)  # raises 404 if wrong tenant
 
     # Si se cambia el orden, verificar que no colisione
     if data.orden is not None and data.orden != paso.orden:
@@ -226,10 +228,12 @@ def actualizar_paso(db: Session, paso_id: int, data: ProcesoPasoTemplateUpdate) 
     return paso
 
 
-def eliminar_paso(db: Session, paso_id: int) -> None:
+def eliminar_paso(db: Session, paso_id: int, studio_id: int = None) -> None:
     paso = db.query(ProcesoPasoTemplate).filter(ProcesoPasoTemplate.id == paso_id).first()
     if not paso:
         raise HTTPException(status_code=404, detail="Paso no encontrado")
+    if studio_id is not None:
+        obtener_template(db, paso.template_id, studio_id)  # raises 404 if wrong tenant
     template_id = paso.template_id
     db.delete(paso)
     db.commit()
@@ -399,10 +403,13 @@ def avanzar_paso_instancia(
     paso_id: int,
     data: ProcesoPasoInstanciaUpdate,
     empleado_id: Optional[int] = None,
+    studio_id: int = None,
 ) -> ProcesoPasoInstancia:
     paso = db.query(ProcesoPasoInstancia).filter(ProcesoPasoInstancia.id == paso_id).first()
     if not paso:
         raise HTTPException(status_code=404, detail="Paso de instancia no encontrado")
+    if studio_id is not None:
+        obtener_instancia(db, paso.instancia_id, studio_id)  # raises 404 if wrong tenant
 
     if data.estado is not None:
         _verificar_secuencialidad(db, paso, data.estado)
