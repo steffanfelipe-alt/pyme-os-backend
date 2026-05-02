@@ -414,7 +414,7 @@ def obtener_ficha_cliente(db: Session, cliente_id: int, studio_id: int) -> Ficha
                     "id": cobro_actual.id,
                     "periodo": getattr(cobro_actual, "periodo", ""),
                     "estado": cobro_actual.estado.value if hasattr(cobro_actual.estado, "value") else str(cobro_actual.estado),
-                    "fecha_vencimiento": cobro_actual.fecha_vencimiento.isoformat() if getattr(cobro_actual, "fecha_vencimiento", None) else None,
+                    "fecha_cobro": cobro_actual.fecha_cobro.isoformat() if getattr(cobro_actual, "fecha_cobro", None) else None,
                 } if cobro_actual else None,
             }
             historial_cobros = [
