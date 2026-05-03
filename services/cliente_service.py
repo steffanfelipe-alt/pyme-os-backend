@@ -374,7 +374,7 @@ def obtener_ficha_cliente(db: Session, cliente_id: int, studio_id: int) -> Ficha
 
     documentos = documento_service.listar_documentos(db, cliente_id)
 
-    # ── Nuevos campos del spec Ficha del Cliente ──────────────────────────────
+    # ── Nuevos campos del spec Ficha del Cliente ────────────────────────────────────────────────────────────
     # Alertas activas
     from models.alerta import AlertaVencimiento
     alertas_db = db.query(AlertaVencimiento).filter(
@@ -461,7 +461,7 @@ def obtener_ficha_cliente(db: Session, cliente_id: int, studio_id: int) -> Ficha
         cobro_estado = abono_data["cobro_actual"].get("estado", "sin_abono")
 
     resumen = {
-        "score_riesgo": getattr(cliente, "score_riesgo", None),
+        "score_riesgo": getattr(cliente, "risk_score", None),
         "alertas_activas": len(alertas_activas),
         "vencimientos_proximos_7_dias": sum(1 for v in proximos if 0 <= v.dias_para_vencer <= 7),
         "tareas_pendientes": len(activas),

@@ -3,10 +3,11 @@ Autenticación JWT separada para el Portal del Cliente.
 El cliente del estudio usa este endpoint — su token es distinto al del contador.
 """
 import logging
+import os
 from datetime import datetime, timedelta, timezone
 
 from fastapi import APIRouter, Depends, HTTPException
-from jose import jwt
+from jose import JWTError, jwt
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
@@ -21,7 +22,6 @@ logger = logging.getLogger("pymeos")
 
 router = APIRouter(prefix="/portal/auth", tags=["Portal - Auth"])
 
-import os
 # Usar PORTAL_JWT_SECRET si está definido; caer en SECRET_KEY como fallback.
 # En producción definir PORTAL_JWT_SECRET separado del JWT del dashboard.
 _SECRET = os.getenv("PORTAL_JWT_SECRET") or os.getenv("SECRET_KEY", "pymeos_portal_secret_key_change_in_prod")
@@ -42,11 +42,11 @@ def _create_portal_token(cliente_id: int, studio_id: int) -> str:
 def _decode_portal_token(token: str) -> dict:
     try:
         payload = jwt.decode(token, _SECRET, algorithms=[_ALGORITHM])
-        if payload.get("tipo") != "portal":
-            raise HTTPException(status_code=401, detail="Token inválido")
-        return payload
-    except Exception:
+    except JWTError:
         raise HTTPException(status_code=401, detail="Token de portal inválido o expirado")
+    if payload.get("tipo") != "portal":
+        raise HTTPException(status_code=401, detail="Token inválido")
+    return payload
 
 
 class LoginPortalRequest(BaseModel):
@@ -71,7 +71,7 @@ def login_portal(data: LoginPortalRequest, db: Session = Depends(get_db)):
     if not usuario or not verify_password(data.password, usuario.password_hash):
         raise HTTPException(status_code=401, detail="Credenciales incorrectas")
 
-    usuario.ultimo_acceso = datetime.utcnow()
+    usuario.ultimo_acceso = datetime.now(timezone.utc)
     db.commit()
 
     cliente = db.query(Cliente).filter(Cliente.id == usuario.cliente_id).first()
@@ -84,12 +84,6 @@ def login_portal(data: LoginPortalRequest, db: Session = Depends(get_db)):
 
 
 # ─── Endpoints del portal (autenticados con JWT de portal) ────────────────────
-
-def _get_portal_cliente(token: str = None, db: Session = None):
-    """Dependencia: extrae cliente_id del JWT de portal."""
-    from fastapi import Header
-    raise NotImplementedError("Use _require_portal_token en cada endpoint")
-
 
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from fastapi import Security
@@ -150,7 +144,6 @@ def ficha_portal(
             Abono.activo == True,
         ).first()
         if abono:
-            from models.abono import EstadoCobro
             cobro = db.query(Cobro).filter(
                 Cobro.abono_id == abono.id,
             ).order_by(Cobro.created_at.desc()).first()
@@ -234,7 +227,7 @@ def marcar_leida(
     if not notif:
         raise HTTPException(status_code=404, detail="Notificación no encontrada")
     notif.leida = True
-    notif.leida_at = datetime.utcnow()
+    notif.leida_at = datetime.now(timezone.utc)
     db.commit()
     return {"ok": True}
 
@@ -247,7 +240,7 @@ def marcar_todas_leidas(
     db.query(PortalNotificacion).filter(
         PortalNotificacion.cliente_id == portal_user["cliente_id"],
         PortalNotificacion.leida == False,
-    ).update({"leida": True, "leida_at": datetime.utcnow()})
+    ).update({"leida": True, "leida_at": datetime.now(timezone.utc)})
     db.commit()
     return {"ok": True}
 
@@ -347,7 +340,7 @@ def cobros_portal(
         return {"sin_abono": True}
 
 
-# ─── Endpoint de dashboard: habilitar acceso al portal a un cliente ───────────
+# ─── Endpoint de dashboard: habilitar acceso al portal a un cliente ─────────────────
 
 from auth_dependencies import get_studio_id, require_rol
 

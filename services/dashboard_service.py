@@ -53,7 +53,7 @@ def _color_carga(pct: float) -> str:
     return "rojo"
 
 
-def obtener_dashboard(db: Session, contador_id: Optional[int] = None, studio_id: int = None) -> DashboardResponse:  # noqa: C901
+def obtener_dashboard(db: Session, contador_id: Optional[int] = None, studio_id: Optional[int] = None) -> DashboardResponse:  # noqa: C901
     hoy = date.today()
     ahora = datetime.now()
     try:
@@ -62,7 +62,7 @@ def obtener_dashboard(db: Session, contador_id: Optional[int] = None, studio_id:
         logger.error("Error generando dashboard: %s", exc, exc_info=True)
         return DashboardResponse(
             bloque_riesgo=BloqueRiesgo(
-                vencimientos_sin_doc=[],
+                vencimientos_sin_docs=[],
                 clientes_sin_actividad=[],
                 tareas_retrasadas=[],
                 alertas_activas=ResumenAlertas(criticas=0, advertencias=0, informativas=0),
@@ -70,7 +70,7 @@ def obtener_dashboard(db: Session, contador_id: Optional[int] = None, studio_id:
             bloque_carga=BloqueCarga(
                 carga_por_contador=[],
                 completadas_a_tiempo=CompletadasATiempo(total_pct=0.0, mes_anterior_pct=None),
-                tiempo_promedio_por_tipo=[],
+                tiempo_promedio_resolucion=[],
                 indice_concentracion=IndiceConcentracion(alerta=False, top_contador_pct=0.0, mensaje=None),
             ),
             bloque_salud=BloqueSalud(
@@ -85,9 +85,9 @@ def obtener_dashboard(db: Session, contador_id: Optional[int] = None, studio_id:
         )
 
 
-def _calcular_dashboard(db: Session, contador_id: Optional[int], hoy: date, ahora: datetime, studio_id: int = None) -> DashboardResponse:
+def _calcular_dashboard(db: Session, contador_id: Optional[int], hoy: date, ahora: datetime, studio_id: Optional[int] = None) -> DashboardResponse:
 
-    # ── filtro base de clientes ──────────────────────────────────────────
+    # ── filtro base de clientes ───────────────────────────────────────────────────────────────────────────────────
     filtro_clientes = [Cliente.activo == True]
     if studio_id is not None:
         filtro_clientes.append(Cliente.studio_id == studio_id)
