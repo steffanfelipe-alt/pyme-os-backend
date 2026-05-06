@@ -70,7 +70,7 @@ def obtener_dashboard(db: Session, contador_id: Optional[int] = None, studio_id:
             bloque_carga=BloqueCarga(
                 carga_por_contador=[],
                 completadas_a_tiempo=CompletadasATiempo(total_pct=0.0, mes_anterior_pct=None),
-                tiempo_promedio_por_tipo=[],
+                tiempo_promedio_resolucion=[],
                 indice_concentracion=IndiceConcentracion(alerta=False, top_contador_pct=0.0, mensaje=None),
             ),
             bloque_salud=BloqueSalud(
@@ -420,16 +420,19 @@ def _calcular_dashboard(db: Session, contador_id: Optional[int], hoy: date, ahor
         for r in doc_stats_rows
     ]
 
-    # Evolución mensual — últimos 6 meses
+    # Evolución mensual — últimos 6 meses (direct month arithmetic avoids off-by-one)
     evolucion = []
     for i in range(5, -1, -1):
-        ref = (hoy.replace(day=1) - timedelta(days=1)) if i > 0 else hoy.replace(day=1)
-        for _ in range(i):
-            ref = (ref.replace(day=1) - timedelta(days=1))
-        mes_ref_inicio = ref.replace(day=1)
-        mes_ref_fin = (mes_ref_inicio.replace(month=mes_ref_inicio.month % 12 + 1, day=1)
-                       if mes_ref_inicio.month < 12
-                       else mes_ref_inicio.replace(year=mes_ref_inicio.year + 1, month=1, day=1))
+        target_month = hoy.month - i
+        target_year = hoy.year
+        while target_month <= 0:
+            target_month += 12
+            target_year -= 1
+        mes_ref_inicio = date(target_year, target_month, 1)
+        if target_month == 12:
+            mes_ref_fin = date(target_year + 1, 1, 1)
+        else:
+            mes_ref_fin = date(target_year, target_month + 1, 1)
 
         altas = db.query(func.count(Cliente.id)).filter(
             Cliente.created_at >= mes_ref_inicio,
