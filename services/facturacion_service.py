@@ -2,6 +2,7 @@
 Servicio de negocio para Facturación Electrónica.
 Orquesta validaciones, emisión ARCA, PDF y persistencia.
 """
+import base64
 import logging
 import os
 from datetime import date, datetime, timezone
@@ -26,7 +27,7 @@ logger = logging.getLogger("pymeos")
 _ALICUOTAS_VALIDAS = {0.0, 10.5, 21.0, 27.0}
 
 
-# ─── Helpers ──────────────────────────────────────────────────────────────────
+# ─── Helpers ──────────────────────────────────────────────────────────────────────────────
 
 def _get_config_o_400(studio_id: int, db: Session) -> StudioArcaConfig:
     cfg = db.query(StudioArcaConfig).filter(StudioArcaConfig.studio_id == studio_id).first()
@@ -68,7 +69,7 @@ def _validar_tipo_x_condicion(tipo_cbte: str, cliente: Cliente) -> None:
         )
 
 
-# ─── Configuración ARCA ───────────────────────────────────────────────────────
+# ─── Configuración ARCA ──────────────────────────────────────────────────────────────────
 
 def guardar_config_arca(studio_id: int, data: ArcaConfigCreate, db: Session) -> dict:
     cfg = db.query(StudioArcaConfig).filter(StudioArcaConfig.studio_id == studio_id).first()
@@ -112,10 +113,7 @@ def obtener_config_arca(studio_id: int, db: Session) -> dict:
     }
 
 
-# ─── Comprobantes ─────────────────────────────────────────────────────────────
-
-import base64
-
+# ─── Comprobantes ─────────────────────────────────────────────────────────────────────
 
 def listar_comprobantes(
     studio_id: int,
@@ -296,7 +294,7 @@ def obtener_pdf_url(comp_id: int, studio_id: int, db: Session) -> str:
     return url
 
 
-# ─── Honorarios recurrentes ───────────────────────────────────────────────────
+# ─── Honorarios recurrentes ───────────────────────────────────────────────────────────────
 
 def listar_honorarios(studio_id: int, db: Session) -> list[HonorarioRecurrente]:
     return db.query(HonorarioRecurrente).filter(HonorarioRecurrente.studio_id == studio_id).all()
@@ -370,7 +368,7 @@ def emitir_honorario_ahora(hon_id: int, studio_id: int, db: Session) -> Comproba
     return comp
 
 
-# ─── Pagos ────────────────────────────────────────────────────────────────────
+# ─── Pagos ──────────────────────────────────────────────────────────────────────────────
 
 def listar_pagos(studio_id: int, estado: Optional[str], db: Session) -> list[PagoComprobante]:
     q = db.query(PagoComprobante).filter(PagoComprobante.studio_id == studio_id)
@@ -379,7 +377,7 @@ def listar_pagos(studio_id: int, estado: Optional[str], db: Session) -> list[Pag
     return q.order_by(PagoComprobante.created_at.desc()).all()
 
 
-# ─── Job: emisión automática de honorarios recurrentes ────────────────────────
+# ─── Job: emisión automática de honorarios recurrentes ──────────────────────────────────────
 
 def job_emitir_honorarios_recurrentes(db: Session) -> None:
     """

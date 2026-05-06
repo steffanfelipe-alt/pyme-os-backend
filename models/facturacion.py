@@ -15,7 +15,7 @@ class Comprobante(Base):
     __tablename__ = "comprobantes"
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
-    studio_id: Mapped[int | None] = mapped_column(Integer, nullable=True, index=True)
+    studio_id: Mapped[int | None] = mapped_column(Integer, ForeignKey("studios.id"), nullable=True, index=True)
     cliente_id: Mapped[int] = mapped_column(Integer, ForeignKey("clientes.id"), nullable=False)
 
     tipo_comprobante: Mapped[str] = mapped_column(String(1), nullable=False)       # A, B, C
@@ -48,7 +48,7 @@ class HonorarioRecurrente(Base):
     __tablename__ = "honorarios_recurrentes"
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
-    studio_id: Mapped[int | None] = mapped_column(Integer, nullable=True, index=True)
+    studio_id: Mapped[int | None] = mapped_column(Integer, ForeignKey("studios.id"), nullable=True, index=True)
     cliente_id: Mapped[int] = mapped_column(Integer, ForeignKey("clientes.id"), nullable=False)
 
     descripcion: Mapped[str] = mapped_column(String(255), nullable=False)
@@ -66,7 +66,7 @@ class PagoComprobante(Base):
     __tablename__ = "pagos_comprobantes"
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
-    studio_id: Mapped[int | None] = mapped_column(Integer, nullable=True, index=True)
+    studio_id: Mapped[int | None] = mapped_column(Integer, ForeignKey("studios.id"), nullable=True, index=True)
     comprobante_id: Mapped[int] = mapped_column(Integer, ForeignKey("comprobantes.id"), nullable=False)
 
     fecha_pago: Mapped[date | None] = mapped_column(Date, nullable=True)
