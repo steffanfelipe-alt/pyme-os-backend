@@ -480,6 +480,7 @@ async def _procesar_nuevos_emails(config: GmailConfig, history_id: str, db: Sess
                     doc = await procesar_adjunto_email(
                         db=db,
                         cliente_id=email.cliente_id,
+                        studio_id=config.studio_id,
                         gmail_message_id=msg_id,
                         adjunto=adjunto,
                         service=service,

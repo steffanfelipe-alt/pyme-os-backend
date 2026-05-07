@@ -343,6 +343,7 @@ def eliminar_documento(db: Session, doc_id: int, studio_id: int | None = None) -
 async def procesar_adjunto_email(
     db: Session,
     cliente_id: int,
+    studio_id: int,
     gmail_message_id: str,
     adjunto: dict,
     service: Any,
@@ -428,6 +429,7 @@ async def procesar_adjunto_email(
     tipo = TipoDocumento(tipo_str) if tipo_str in TipoDocumento._value2member_map_ else TipoDocumento.otro
 
     doc = Documento(
+        studio_id=studio_id,
         cliente_id=cliente_id,
         nombre_original=filename,
         ruta_archivo=str(ruta.as_posix()),
