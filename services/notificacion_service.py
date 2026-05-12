@@ -220,6 +220,7 @@ def job_resumen_semanal_email() -> None:
             logger.warning("Job resumen semanal — SMTP no configurado")
             return
 
+        studio_id = dueno.studio_id
         hoy = date.today()
         fin_semana = hoy + timedelta(days=7)
 
@@ -232,6 +233,7 @@ def job_resumen_semanal_email() -> None:
                 Vencimiento.fecha_vencimiento >= hoy,
                 Vencimiento.fecha_vencimiento <= fin_semana,
                 Cliente.activo == True,
+                Cliente.studio_id == studio_id,
             )
             .order_by(Vencimiento.fecha_vencimiento)
             .all()
@@ -239,16 +241,21 @@ def job_resumen_semanal_email() -> None:
 
         # Alertas activas
         alertas_activas = db.query(AlertaVencimiento).filter(
-            AlertaVencimiento.resuelta_at == None
+            AlertaVencimiento.studio_id == studio_id,
+            AlertaVencimiento.resuelta_at == None,
         ).count()
 
         alertas_criticas = db.query(AlertaVencimiento).filter(
+            AlertaVencimiento.studio_id == studio_id,
             AlertaVencimiento.resuelta_at == None,
             AlertaVencimiento.nivel == "critica",
         ).count()
 
-        # Clientes con documentación pendiente
-        clientes_activos = db.query(Cliente).filter(Cliente.activo == True).count()
+        # Clientes activos del estudio
+        clientes_activos = db.query(Cliente).filter(
+            Cliente.studio_id == studio_id,
+            Cliente.activo == True,
+        ).count()
 
         # Construir email
         lineas = [

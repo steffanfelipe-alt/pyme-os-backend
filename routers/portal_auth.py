@@ -71,7 +71,7 @@ def login_portal(data: LoginPortalRequest, db: Session = Depends(get_db)):
     if not usuario or not verify_password(data.password, usuario.password_hash):
         raise HTTPException(status_code=401, detail="Credenciales incorrectas")
 
-    usuario.ultimo_acceso = datetime.utcnow()
+    usuario.ultimo_acceso = datetime.now(timezone.utc)
     db.commit()
 
     cliente = db.query(Cliente).filter(Cliente.id == usuario.cliente_id).first()
@@ -83,13 +83,7 @@ def login_portal(data: LoginPortalRequest, db: Session = Depends(get_db)):
     )
 
 
-# ─── Endpoints del portal (autenticados con JWT de portal) ────────────────────
-
-def _get_portal_cliente(token: str = None, db: Session = None):
-    """Dependencia: extrae cliente_id del JWT de portal."""
-    from fastapi import Header
-    raise NotImplementedError("Use _require_portal_token en cada endpoint")
-
+# ─── Endpoints del portal (autenticados con JWT de portal) ──────────────────────────────────
 
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from fastapi import Security
@@ -234,7 +228,7 @@ def marcar_leida(
     if not notif:
         raise HTTPException(status_code=404, detail="Notificación no encontrada")
     notif.leida = True
-    notif.leida_at = datetime.utcnow()
+    notif.leida_at = datetime.now(timezone.utc)
     db.commit()
     return {"ok": True}
 
@@ -247,7 +241,7 @@ def marcar_todas_leidas(
     db.query(PortalNotificacion).filter(
         PortalNotificacion.cliente_id == portal_user["cliente_id"],
         PortalNotificacion.leida == False,
-    ).update({"leida": True, "leida_at": datetime.utcnow()})
+    ).update({"leida": True, "leida_at": datetime.now(timezone.utc)})
     db.commit()
     return {"ok": True}
 
@@ -347,7 +341,7 @@ def cobros_portal(
         return {"sin_abono": True}
 
 
-# ─── Endpoint de dashboard: habilitar acceso al portal a un cliente ───────────
+# ─── Endpoint de dashboard: habilitar acceso al portal a un cliente ───────────────────────
 
 from auth_dependencies import get_studio_id, require_rol
 
