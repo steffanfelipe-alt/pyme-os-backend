@@ -25,6 +25,7 @@ class CondicionFiscal(str, enum.Enum):
     responsable_inscripto = "responsable_inscripto"
     monotributista = "monotributista"
     exento = "exento"
+    consumidor_final = "consumidor_final"
     no_responsable = "no_responsable"
     relacion_de_dependencia = "relacion_de_dependencia"
     autonomos = "autonomos"
