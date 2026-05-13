@@ -1,5 +1,5 @@
 import logging
-from datetime import date, datetime
+from datetime import date, datetime, timezone
 
 from fastapi import HTTPException
 from sqlalchemy.orm import Session
@@ -210,7 +210,7 @@ def _intentar_notificar_telegram(db: Session, alerta: "AlertaVencimiento", venc)
             alerta.id,
         )
         alerta.sent_via_telegram = True
-        alerta.telegram_sent_at = datetime.utcnow()
+        alerta.telegram_sent_at = datetime.now(timezone.utc)
     except Exception as e:
         logger.warning("No se pudo enviar alerta Telegram: %s", e)
 
@@ -297,7 +297,7 @@ def resolver_alerta(db: Session, alerta_id: int, studio_id: int) -> dict:
     ).first()
     if not alerta:
         raise HTTPException(status_code=404, detail="Alerta no encontrada")
-    alerta.resuelta_at = datetime.utcnow()
+    alerta.resuelta_at = datetime.now(timezone.utc)
     db.commit()
     return {"id": alerta.id, "resuelta_at": alerta.resuelta_at.isoformat()}
 
@@ -308,7 +308,7 @@ def ignorar_alerta(db: Session, alerta_id: int, studio_id: int) -> dict:
     ).first()
     if not alerta:
         raise HTTPException(status_code=404, detail="Alerta no encontrada")
-    alerta.ignorada_at = datetime.utcnow()
+    alerta.ignorada_at = datetime.now(timezone.utc)
     db.commit()
     return {"id": alerta.id, "ignorada_at": alerta.ignorada_at.isoformat()}
 
@@ -397,7 +397,7 @@ def crear_alerta_manual(db: Session, studio_id: int, data: dict) -> dict:
         try:
             _enviar_alerta_manual_email(db, alerta, studio_id)
             alerta.sent_via_email = True
-            alerta.email_sent_at = datetime.utcnow()
+            alerta.email_sent_at = datetime.now(timezone.utc)
         except Exception as e:
             logger.warning("No se pudo enviar alerta manual por email: %s", e)
 
@@ -412,7 +412,7 @@ def crear_alerta_manual(db: Session, studio_id: int, data: dict) -> dict:
         )
         db.add(notif)
         alerta.sent_via_portal = True
-        alerta.portal_sent_at = datetime.utcnow()
+        alerta.portal_sent_at = datetime.now(timezone.utc)
 
     db.commit()
     db.refresh(alerta)

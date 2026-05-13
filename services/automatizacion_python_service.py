@@ -92,8 +92,9 @@ def actualizar_automatizacion_python(
     db: Session,
     auto_id: int,
     data: AutomatizacionPythonUpdate,
+    studio_id: int = None,
 ) -> AutomatizacionPython:
-    auto = obtener_automatizacion_python(db, auto_id)
+    auto = obtener_automatizacion_python(db, auto_id, studio_id)
     if data.nombre is not None:
         auto.nombre = data.nombre
     if data.descripcion is not None:
@@ -109,9 +110,9 @@ def actualizar_automatizacion_python(
     return auto
 
 
-def aplicar_inputs(db: Session, auto_id: int, inputs: dict) -> AutomatizacionPython:
+def aplicar_inputs(db: Session, auto_id: int, inputs: dict, studio_id: int = None) -> AutomatizacionPython:
     """Guarda los valores de inputs provistos por el usuario para los nodos que los requieren."""
-    auto = obtener_automatizacion_python(db, auto_id)
+    auto = obtener_automatizacion_python(db, auto_id, studio_id)
     configurados = auto.inputs_configurados or {}
     for node_id, valores in inputs.items():
         configurados[node_id] = {**(configurados.get(node_id) or {}), **valores}
@@ -121,11 +122,11 @@ def aplicar_inputs(db: Session, auto_id: int, inputs: dict) -> AutomatizacionPyt
     return auto
 
 
-def obtener_inputs_requeridos(db: Session, auto_id: int) -> list[dict]:
+def obtener_inputs_requeridos(db: Session, auto_id: int, studio_id: int = None) -> list[dict]:
     """
     Retorna los required_inputs de todos los nodos que aún no tienen sus valores configurados.
     """
-    auto = obtener_automatizacion_python(db, auto_id)
+    auto = obtener_automatizacion_python(db, auto_id, studio_id)
     nodos = auto.nodos or []
     configurados = auto.inputs_configurados or {}
     pendientes = []
@@ -243,7 +244,7 @@ Descripción de la automatización:
     return auto
 
 
-async def generar_codigo_python(db: Session, auto_id: int) -> AutomatizacionPython:
+async def generar_codigo_python(db: Session, auto_id: int, studio_id: int = None) -> AutomatizacionPython:
     """
     Genera código Python ejecutable a partir del grafo de nodos de la automatización.
     El código usa los inputs_configurados del usuario para llenar las variables.
@@ -251,7 +252,7 @@ async def generar_codigo_python(db: Session, auto_id: int) -> AutomatizacionPyth
     from services.ai_client import get_anthropic_client
     import anthropic as _anthropic
 
-    auto = obtener_automatizacion_python(db, auto_id)
+    auto = obtener_automatizacion_python(db, auto_id, studio_id)
     nodos = auto.nodos or []
     conexiones = auto.conexiones or []
     inputs_configurados = auto.inputs_configurados or {}
