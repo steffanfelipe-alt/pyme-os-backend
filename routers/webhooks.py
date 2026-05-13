@@ -75,7 +75,7 @@ def _validar_telegram_request(request: Request) -> None:
 def _get_wizard(db: Session, telegram_user_id: str) -> AsistenteSesionWizard | None:
     return db.query(AsistenteSesionWizard).filter(
         AsistenteSesionWizard.telegram_user_id == telegram_user_id,
-        AsistenteSesionWizard.expira_at >= datetime.utcnow(),
+        AsistenteSesionWizard.expira_at >= datetime.now(timezone.utc),
     ).first()
 
 
@@ -93,7 +93,7 @@ def _start_wizard(db: Session, telegram_user_id: str, comando: str) -> Asistente
         comando=comando,
         paso_actual=0,
         datos_parciales={},
-        expira_at=datetime.utcnow() + timedelta(minutes=15),
+        expira_at=datetime.now(timezone.utc) + timedelta(minutes=15),
     )
     db.add(wizard)
     db.commit()
@@ -154,7 +154,7 @@ async def telegram_webhook(
                 "/cancelar — Cancelar operación en curso"
             )
         else:
-            bienvenida += "Para vincular tu cuenta, pedile al administrador del estudio que te genere un código de vinculación."
+            bienvenida += "Para vincular tu cuenta, pedíle al administrador del estudio que te genere un código de vinculación."
         await tg.send_message(int(telegram_user_id), bienvenida)
         return {"ok": True}
 
@@ -228,7 +228,7 @@ async def telegram_webhook(
     return {"ok": True}
 
 
-# ─── Wizard /task ─────────────────────────────────────────────────────────────
+# ─── Wizard /task ──────────────────────────────────────────────────────────────────────
 
 async def _handle_wizard_task(
     db: Session, wizard: AsistenteSesionWizard, texto: str, telegram_user_id: str
@@ -391,7 +391,10 @@ async def _crear_tarea_desde_wizard(db: Session, datos: dict, telegram_user_id: 
         AsistenteCanal.activo == True,
     ).first()
     empleado = db.query(Empleado).filter(Empleado.id == canal.usuario_id).first() if canal else None
-    studio_id = empleado.studio_id if empleado else 1
+    if not empleado:
+        await tg.send_message(int(telegram_user_id), "No se pudo determinar el estudio. Contactá al administrador.")
+        return
+    studio_id = empleado.studio_id
 
     fecha_limite = None
     if datos.get("fecha_limite"):
@@ -413,7 +416,7 @@ async def _crear_tarea_desde_wizard(db: Session, datos: dict, telegram_user_id: 
     )
 
 
-# ─── Wizard /cliente ──────────────────────────────────────────────────────────
+# ─── Wizard /cliente ──────────────────────────────────────────────────────────────
 
 async def _handle_wizard_cliente(
     db: Session, wizard: AsistenteSesionWizard, texto: str, telegram_user_id: str
@@ -538,7 +541,10 @@ async def _crear_cliente_desde_wizard(db: Session, datos: dict, telegram_user_id
         AsistenteCanal.activo == True,
     ).first()
     empleado = db.query(Empleado).filter(Empleado.id == canal.usuario_id).first() if canal else None
-    studio_id = empleado.studio_id if empleado else 1
+    if not empleado:
+        await tg.send_message(int(telegram_user_id), "No se pudo determinar el estudio. Contactá al administrador.")
+        return
+    studio_id = empleado.studio_id
 
     cliente_data = ClienteCreate(
         tipo_persona=TipoPersona.fisica,
@@ -557,7 +563,7 @@ async def _crear_cliente_desde_wizard(db: Session, datos: dict, telegram_user_id
     )
 
 
-# ─── Handlers existentes ──────────────────────────────────────────────────────
+# ─── Handlers existentes ────────────────────────────────────────────────────────────
 
 async def _handle_resolve_alert(db: Session, callback_data: str, telegram_user_id: str) -> None:
     try:
@@ -571,7 +577,10 @@ async def _handle_resolve_alert(db: Session, callback_data: str, telegram_user_i
             AsistenteCanal.activo == True,
         ).first()
         empleado = db.query(Empleado).filter(Empleado.id == canal.usuario_id).first() if canal else None
-        studio_id = empleado.studio_id if empleado else 1
+        if not empleado:
+            await tg.send_message(int(telegram_user_id), "No se pudo determinar el estudio. Contactá al administrador.")
+            return
+        studio_id = empleado.studio_id
 
         resolver_alerta(db, alerta_id, studio_id)
         await tg.send_message(int(telegram_user_id), "✅ Alerta marcada como resuelta.")
@@ -645,7 +654,7 @@ async def _handle_vincular(db: Session, texto: str, telegram_user_id: str) -> No
             await tg.send_message(
                 int(telegram_user_id),
                 "✅ Bot vinculado al estudio. Pero no encontré un empleado con rol dueño "
-                "para registrar el canal. Pedile al administrador que te registre manualmente.",
+                "para registrar el canal. Pedíle al administrador que te registre manualmente.",
             )
 
     except Exception as e:
@@ -694,8 +703,14 @@ async def _handle_vencimientos(db: Session, telegram_user_id: str, canal) -> Non
         return
     try:
         from datetime import date, timedelta
+        from models.empleado import Empleado
         from models.vencimiento import Vencimiento, EstadoVencimiento
         from models.cliente import Cliente
+
+        empleado = db.query(Empleado).filter(Empleado.id == canal.usuario_id).first()
+        if not empleado:
+            await tg.send_message(int(telegram_user_id), "No se encontró tu usuario.")
+            return
 
         hoy = date.today()
         proximos_7 = hoy + timedelta(days=7)
@@ -704,6 +719,7 @@ async def _handle_vencimientos(db: Session, telegram_user_id: str, canal) -> Non
             db.query(Vencimiento, Cliente)
             .join(Cliente, Vencimiento.cliente_id == Cliente.id)
             .filter(
+                Vencimiento.studio_id == empleado.studio_id,
                 Vencimiento.estado == EstadoVencimiento.pendiente,
                 Vencimiento.fecha_vencimiento >= hoy,
                 Vencimiento.fecha_vencimiento <= proximos_7,

@@ -165,11 +165,17 @@ def login(request: Request, data: LoginRequest, db: Session = Depends(get_db)):
         Empleado.studio_id == usuario.studio_id,
         Empleado.activo == True,
     ).first()
+    if not empleado:
+        raise HTTPException(
+            status_code=403,
+            detail="Usuario sin perfil de empleado activo en el estudio",
+        )
+
     token = create_access_token({
         "sub": str(usuario.id),
         "email": usuario.email,
-        "rol": empleado.rol if empleado else None,
-        "empleado_id": empleado.id if empleado else None,
+        "rol": empleado.rol,
+        "empleado_id": empleado.id,
         "studio_id": usuario.studio_id,
     })
     return TokenResponse(access_token=token)

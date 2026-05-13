@@ -22,9 +22,11 @@ logger = logging.getLogger("pymeos")
 router = APIRouter(prefix="/portal/auth", tags=["Portal - Auth"])
 
 import os
-# Usar PORTAL_JWT_SECRET si está definido; caer en SECRET_KEY como fallback.
-# En producción definir PORTAL_JWT_SECRET separado del JWT del dashboard.
-_SECRET = os.getenv("PORTAL_JWT_SECRET") or os.getenv("SECRET_KEY", "pymeos_portal_secret_key_change_in_prod")
+_SECRET = os.getenv("PORTAL_JWT_SECRET") or os.getenv("SECRET_KEY", "")
+if not _SECRET:
+    raise RuntimeError(
+        "Configurá PORTAL_JWT_SECRET (o SECRET_KEY como fallback) en las variables de entorno."
+    )
 _ALGORITHM = "HS256"
 _EXPIRE_HOURS = 24 * 7  # 7 días
 
@@ -71,7 +73,7 @@ def login_portal(data: LoginPortalRequest, db: Session = Depends(get_db)):
     if not usuario or not verify_password(data.password, usuario.password_hash):
         raise HTTPException(status_code=401, detail="Credenciales incorrectas")
 
-    usuario.ultimo_acceso = datetime.utcnow()
+    usuario.ultimo_acceso = datetime.now(timezone.utc)
     db.commit()
 
     cliente = db.query(Cliente).filter(Cliente.id == usuario.cliente_id).first()
@@ -234,7 +236,7 @@ def marcar_leida(
     if not notif:
         raise HTTPException(status_code=404, detail="Notificación no encontrada")
     notif.leida = True
-    notif.leida_at = datetime.utcnow()
+    notif.leida_at = datetime.now(timezone.utc)
     db.commit()
     return {"ok": True}
 
@@ -247,7 +249,7 @@ def marcar_todas_leidas(
     db.query(PortalNotificacion).filter(
         PortalNotificacion.cliente_id == portal_user["cliente_id"],
         PortalNotificacion.leida == False,
-    ).update({"leida": True, "leida_at": datetime.utcnow()})
+    ).update({"leida": True, "leida_at": datetime.now(timezone.utc)})
     db.commit()
     return {"ok": True}
 
@@ -347,7 +349,7 @@ def cobros_portal(
         return {"sin_abono": True}
 
 
-# ─── Endpoint de dashboard: habilitar acceso al portal a un cliente ───────────
+# ─── Endpoint de dashboard: habilitar acceso al portal a un cliente ─────────────────
 
 from auth_dependencies import get_studio_id, require_rol
 
