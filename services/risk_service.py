@@ -1,6 +1,6 @@
 import logging
 import os
-from datetime import date, datetime, timedelta
+from datetime import date, datetime, timedelta, timezone
 
 from fastapi import HTTPException
 from sqlalchemy.orm import Session
@@ -109,7 +109,7 @@ def calcular_score_cliente(db: Session, cliente_id: int, studio_id: int = None) 
 
     cliente.risk_score = score
     cliente.risk_level = nivel
-    cliente.risk_calculated_at = datetime.utcnow()
+    cliente.risk_calculated_at = datetime.now(timezone.utc)
     cliente.risk_explanation = None  # se regenera en background
     db.commit()
 
@@ -217,7 +217,7 @@ def recalcular_todos(db: Session, studio_id: int = None) -> dict:
 
         cliente.risk_score = score
         cliente.risk_level = nivel
-        cliente.risk_calculated_at = datetime.utcnow()
+        cliente.risk_calculated_at = datetime.now(timezone.utc)
 
         conteos["procesados"] += 1
         conteos[{"verde": "verdes", "amarillo": "amarillos", "rojo": "rojos"}[nivel]] += 1

@@ -94,10 +94,11 @@ def actualizar_tarea(db: Session, tarea_id: int, data: TareaUpdate, studio_id: i
             profitability_service.calcular_rentabilidad_periodo(db, periodo)
         except Exception:
             pass
-        try:
-            risk_service.calcular_score_cliente(db, tarea.cliente_id)
-        except Exception:
-            pass
+        if tarea.cliente_id is not None:
+            try:
+                risk_service.calcular_score_cliente(db, tarea.cliente_id)
+            except Exception:
+                pass
 
     return tarea
 
@@ -181,10 +182,11 @@ def completar_tarea(db: Session, tarea_id: int, studio_id: int) -> Tarea:
         profitability_service.calcular_rentabilidad_periodo(db, periodo)
     except Exception:
         pass
-    try:
-        risk_service.calcular_score_cliente(db, tarea.cliente_id)
-    except Exception:
-        pass
+    if tarea.cliente_id is not None:
+        try:
+            risk_service.calcular_score_cliente(db, tarea.cliente_id)
+        except Exception:
+            pass
 
     return tarea
 
