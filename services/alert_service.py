@@ -492,11 +492,13 @@ def generar_alertas_mora(db: Session, studio_id: int) -> int:
     """Genera alertas para clientes con cobros vencidos (mora en abono)."""
     generadas = 0
     try:
-        from models.abono import Cobro, EstadoCobro
+        from models.abono import Abono, Cobro, EstadoCobro
         from models.cliente import Cliente
 
         cobros_vencidos = db.query(Cobro).join(
-            Cliente, Cobro.cliente_id == Cliente.id
+            Abono, Cobro.abono_id == Abono.id
+        ).join(
+            Cliente, Abono.cliente_id == Cliente.id
         ).filter(
             Cliente.studio_id == studio_id,
             Cobro.estado == EstadoCobro.vencido,
@@ -514,14 +516,17 @@ def generar_alertas_mora(db: Session, studio_id: int) -> int:
             if existente:
                 continue
 
-            cliente = db.query(Cliente).filter(Cliente.id == cobro.cliente_id).first()
-            nombre = cliente.nombre if cliente else f"Cliente #{cobro.cliente_id}"
+            abono = db.query(Abono).filter(Abono.id == cobro.abono_id).first()
+            if not abono:
+                continue
+            cliente = db.query(Cliente).filter(Cliente.id == abono.cliente_id).first()
+            nombre = cliente.nombre if cliente else f"Cliente #{abono.cliente_id}"
             monto = getattr(cobro, "monto", 0)
             periodo = getattr(cobro, "periodo", "")
 
             alerta = AlertaVencimiento(
                 studio_id=studio_id,
-                cliente_id=cobro.cliente_id,
+                cliente_id=abono.cliente_id,
                 tipo="mora",
                 origen="sistema",
                 titulo=f"Cobro vencido — {nombre}",
@@ -551,7 +556,7 @@ def generar_alertas_riesgo(db: Session, studio_id: int, umbral: int = 70) -> int
         ).all()
 
         for cliente in clientes:
-            score = getattr(cliente, "score_riesgo", None)
+            score = getattr(cliente, "risk_score", None)
             if score is None or score < umbral:
                 continue
 
