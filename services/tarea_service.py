@@ -91,7 +91,7 @@ def actualizar_tarea(db: Session, tarea_id: int, data: TareaUpdate, studio_id: i
     if completando:
         periodo = (tarea.fecha_completada or date.today()).strftime("%Y-%m")
         try:
-            profitability_service.calcular_rentabilidad_periodo(db, periodo)
+            profitability_service.calcular_rentabilidad_periodo(db, periodo, tarea.studio_id)
         except Exception:
             pass
         try:
@@ -178,7 +178,7 @@ def completar_tarea(db: Session, tarea_id: int, studio_id: int) -> Tarea:
 
     periodo = tarea.fecha_completada.strftime("%Y-%m")
     try:
-        profitability_service.calcular_rentabilidad_periodo(db, periodo)
+        profitability_service.calcular_rentabilidad_periodo(db, periodo, tarea.studio_id)
     except Exception:
         pass
     try:
