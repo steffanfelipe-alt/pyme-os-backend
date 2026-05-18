@@ -570,8 +570,8 @@ def reporte_resumen(db: Session, periodo: Optional[str], studio_id: int = None) 
 
 def _calcular_cobertura_sops(db: Session, studio_id: int = None) -> dict:
     """Calcula cobertura de SOPs sobre procesos activos."""
-    from datetime import datetime, timedelta
-    hoy = datetime.utcnow()
+    from datetime import datetime, timedelta, timezone
+    hoy = datetime.now(timezone.utc)
     hace_90_dias = hoy - timedelta(days=90)
 
     tmpl_f = [ProcesoTemplate.activo == True]
@@ -630,7 +630,7 @@ def reporte_madurez(db: Session, studio_id: int = None) -> dict:
     """Calcula la etapa de madurez del estudio según SYSTEMology."""
     from datetime import datetime, timedelta
 
-    hoy = datetime.utcnow()
+    hoy = datetime.now(timezone.utc)
     hace_90_dias = hoy - timedelta(days=90)
 
     # Indicadores

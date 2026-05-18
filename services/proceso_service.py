@@ -2,7 +2,7 @@
 Servicio de templates e instancias de procesos.
 """
 import logging
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Optional
 
 from fastapi import HTTPException
@@ -342,9 +342,9 @@ def actualizar_instancia(db: Session, instancia_id: int, data: ProcesoInstanciaU
     if data.estado is not None:
         instancia.estado = data.estado
         if data.estado == EstadoInstancia.en_progreso and instancia.fecha_inicio is None:
-            instancia.fecha_inicio = datetime.utcnow()
+            instancia.fecha_inicio = datetime.now(timezone.utc)
         if data.estado == EstadoInstancia.completado and instancia.fecha_fin is None:
-            instancia.fecha_fin = datetime.utcnow()
+            instancia.fecha_fin = datetime.now(timezone.utc)
     db.commit()
     db.refresh(instancia)
     return instancia
@@ -359,7 +359,7 @@ def iniciar_instancia(db: Session, instancia_id: int, studio_id: int, empleado_i
         raise HTTPException(status_code=400, detail="El proceso fue cancelado.")
     instancia.estado = EstadoInstancia.en_progreso
     if instancia.fecha_inicio is None:
-        instancia.fecha_inicio = datetime.utcnow()
+        instancia.fecha_inicio = datetime.now(timezone.utc)
     db.commit()
     db.refresh(instancia)
     return instancia
@@ -370,7 +370,7 @@ def completar_instancia(db: Session, instancia_id: int, studio_id: int) -> Proce
     instancia = obtener_instancia(db, instancia_id, studio_id)
     if instancia.estado == EstadoInstancia.cancelado:
         raise HTTPException(status_code=400, detail="No se puede completar un proceso cancelado.")
-    ahora = datetime.utcnow()
+    ahora = datetime.now(timezone.utc)
     instancia.estado = EstadoInstancia.completado
     instancia.fecha_fin = ahora
     if instancia.fecha_inicio:
@@ -386,7 +386,7 @@ def cancelar_instancia(db: Session, instancia_id: int, studio_id: int) -> Proces
     if instancia.estado in (EstadoInstancia.completado, EstadoInstancia.cancelado):
         raise HTTPException(status_code=400, detail=f"La instancia ya está en estado {instancia.estado.value}.")
     instancia.estado = EstadoInstancia.cancelado
-    instancia.fecha_fin = datetime.utcnow()
+    instancia.fecha_fin = datetime.now(timezone.utc)
     db.commit()
     db.refresh(instancia)
     return instancia
@@ -410,10 +410,10 @@ def avanzar_paso_instancia(
 
         if data.estado == EstadoPasoInstancia.en_progreso:
             if paso.fecha_inicio is None:
-                paso.fecha_inicio = datetime.utcnow()
+                paso.fecha_inicio = datetime.now(timezone.utc)
 
         if data.estado == EstadoPasoInstancia.completado:
-            ahora = datetime.utcnow()
+            ahora = datetime.now(timezone.utc)
             paso.fecha_fin = ahora
             # Solo calcular tiempo si fecha_inicio fue registrado
             if paso.fecha_inicio is not None:
@@ -535,12 +535,12 @@ def _recalcular_progreso(db: Session, instancia_id: int) -> None:
     if completados == total:
         instancia.estado = EstadoInstancia.completado
         if instancia.fecha_fin is None:
-            instancia.fecha_fin = datetime.utcnow()
+            instancia.fecha_fin = datetime.now(timezone.utc)
         _recalcular_estimados_template(db, instancia.template_id)
     elif completados > 0 and instancia.estado == EstadoInstancia.pendiente:
         instancia.estado = EstadoInstancia.en_progreso
         if instancia.fecha_inicio is None:
-            instancia.fecha_inicio = datetime.utcnow()
+            instancia.fecha_inicio = datetime.now(timezone.utc)
 
     db.commit()
 

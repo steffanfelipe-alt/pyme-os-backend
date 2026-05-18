@@ -6,7 +6,7 @@ solo se muestra si están configuradas y los últimos 4 chars.
 import os
 import random
 import string
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from typing import Optional
 
 import httpx
@@ -195,7 +195,7 @@ def generar_codigo_vinculacion_telegram(
     config = _get_or_create_config(db)
 
     codigo = "".join(random.choices(string.ascii_uppercase + string.digits, k=6))
-    expira_en = datetime.utcnow() + timedelta(minutes=15)
+    expira_en = datetime.now(timezone.utc) + timedelta(minutes=15)
 
     config.telegram_connect_code = codigo
     config.telegram_connect_expires_at = expira_en
@@ -223,6 +223,6 @@ def estado_telegram(
         "codigo_pendiente": bool(
             config.telegram_connect_code
             and config.telegram_connect_expires_at
-            and config.telegram_connect_expires_at > datetime.utcnow()
+            and config.telegram_connect_expires_at > datetime.now(timezone.utc)
         ),
     }

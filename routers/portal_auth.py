@@ -71,7 +71,7 @@ def login_portal(data: LoginPortalRequest, db: Session = Depends(get_db)):
     if not usuario or not verify_password(data.password, usuario.password_hash):
         raise HTTPException(status_code=401, detail="Credenciales incorrectas")
 
-    usuario.ultimo_acceso = datetime.utcnow()
+    usuario.ultimo_acceso = datetime.now(timezone.utc)
     db.commit()
 
     cliente = db.query(Cliente).filter(Cliente.id == usuario.cliente_id).first()
@@ -159,7 +159,7 @@ def ficha_portal(
                     "monto": float(cobro.monto or 0),
                     "estado": cobro.estado.value if hasattr(cobro.estado, "value") else str(cobro.estado),
                     "periodo": getattr(cobro, "periodo", ""),
-                    "fecha_vencimiento": cobro.fecha_vencimiento.isoformat() if getattr(cobro, "fecha_vencimiento", None) else None,
+                    "fecha_vencimiento": cobro.fecha_cobro.isoformat() if getattr(cobro, "fecha_cobro", None) else None,
                 }
     except Exception:
         pass
@@ -234,7 +234,7 @@ def marcar_leida(
     if not notif:
         raise HTTPException(status_code=404, detail="Notificación no encontrada")
     notif.leida = True
-    notif.leida_at = datetime.utcnow()
+    notif.leida_at = datetime.now(timezone.utc)
     db.commit()
     return {"ok": True}
 
@@ -247,7 +247,7 @@ def marcar_todas_leidas(
     db.query(PortalNotificacion).filter(
         PortalNotificacion.cliente_id == portal_user["cliente_id"],
         PortalNotificacion.leida == False,
-    ).update({"leida": True, "leida_at": datetime.utcnow()})
+    ).update({"leida": True, "leida_at": datetime.now(timezone.utc)})
     db.commit()
     return {"ok": True}
 
@@ -322,14 +322,14 @@ def cobros_portal(
         return {
             "abono": {
                 "monto": float(abono.monto or 0),
-                "estado": abono.estado.value if hasattr(abono.estado, "value") else str(abono.estado),
-                "descripcion": getattr(abono, "descripcion", "Honorarios mensuales"),
+                "estado": "activo" if abono.activo else "inactivo",
+                "descripcion": getattr(abono, "concepto", "Honorarios mensuales"),
             },
             "cobro_actual": {
                 "monto": float(cobros[0].monto or 0) if cobros else 0,
                 "estado": (cobros[0].estado.value if hasattr(cobros[0].estado, "value") else str(cobros[0].estado)) if cobros else "sin_cobro",
                 "periodo": getattr(cobros[0], "periodo", "") if cobros else "",
-                "fecha_vencimiento": cobros[0].fecha_vencimiento.isoformat() if cobros and getattr(cobros[0], "fecha_vencimiento", None) else None,
+                "fecha_vencimiento": cobros[0].fecha_cobro.isoformat() if cobros and getattr(cobros[0], "fecha_cobro", None) else None,
             } if cobros else None,
             "historial": [
                 {

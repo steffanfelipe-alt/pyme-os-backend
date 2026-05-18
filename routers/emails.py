@@ -6,7 +6,7 @@ import base64
 import json
 import logging
 import os
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Request, status
@@ -128,7 +128,7 @@ def obtener_email(
     email = _get_email_o_404(email_id, db)
     if email.estado == "no_leido":
         email.estado = "leido"
-        email.leido_at = datetime.utcnow()
+        email.leido_at = datetime.now(timezone.utc)
         db.commit()
     return email
 
@@ -218,7 +218,7 @@ def aprobar_respuesta(
     _enviar_respuesta_via_gmail(email, email.borrador_respuesta, db)
     email.borrador_aprobado = True
     email.estado = "respondido"
-    email.respuesta_enviada_at = datetime.utcnow()
+    email.respuesta_enviada_at = datetime.now(timezone.utc)
     db.commit()
     return {"ok": True}
 
@@ -241,7 +241,7 @@ def editar_y_enviar_respuesta(
     email.borrador_aprobado = True
     email.requiere_revision_manual = False  # El humano revisó y aprobó
     email.estado = "respondido"
-    email.respuesta_enviada_at = datetime.utcnow()
+    email.respuesta_enviada_at = datetime.now(timezone.utc)
     db.commit()
     return {"ok": True}
 
@@ -258,7 +258,7 @@ def respuesta_manual(
 
     _enviar_respuesta_via_gmail(email, body.texto, db)
     email.estado = "respondido"
-    email.respuesta_enviada_at = datetime.utcnow()
+    email.respuesta_enviada_at = datetime.now(timezone.utc)
     db.commit()
     return {"ok": True}
 

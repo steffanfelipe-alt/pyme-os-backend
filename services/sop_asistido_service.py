@@ -4,7 +4,7 @@ CRUD + generación con IA + integración con automatizaciones.
 """
 import json
 import logging
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from typing import Optional
 
 import anthropic
@@ -206,7 +206,7 @@ def publicar_sop(db: Session, sop_id: int, empleado_id: Optional[int]) -> SopDoc
     if sop.estado == EstadoSop.activo:
         raise HTTPException(status_code=400, detail="El SOP ya está activo")
     sop.estado = EstadoSop.activo
-    ahora = datetime.utcnow()
+    ahora = datetime.now(timezone.utc)
     sop.fecha_ultima_revision = ahora
 
     revision = SopRevision(
@@ -449,7 +449,7 @@ def confirmar_lectura(
         return {"confirmado": True, "mensaje": "Este paso no requiere confirmación de lectura", "requiere_confirmacion": False}
 
     # Verificar si ya existe confirmación reciente (últimos 30 días)
-    hace_30_dias = datetime.utcnow() - timedelta(days=30)
+    hace_30_dias = datetime.now(timezone.utc) - timedelta(days=30)
     confirmacion_reciente = (
         db.query(SopConfirmacionLectura)
         .filter(
@@ -467,7 +467,7 @@ def confirmar_lectura(
         sop_paso_id=paso_id,
         empleado_id=empleado_id,
         proceso_instancia_paso_id=proceso_instancia_paso_id,
-        fecha_confirmacion=datetime.utcnow(),
+        fecha_confirmacion=datetime.now(timezone.utc),
     )
     db.add(confirmacion)
     db.commit()
@@ -480,7 +480,7 @@ def verificar_confirmacion_lectura(
     empleado_id: int,
 ) -> bool:
     """Retorna True si el empleado tiene confirmación de lectura vigente (últimos 30 días)."""
-    hace_30_dias = datetime.utcnow() - timedelta(days=30)
+    hace_30_dias = datetime.now(timezone.utc) - timedelta(days=30)
     return db.query(SopConfirmacionLectura).filter(
         SopConfirmacionLectura.sop_paso_id == sop_paso_id,
         SopConfirmacionLectura.empleado_id == empleado_id,

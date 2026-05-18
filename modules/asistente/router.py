@@ -136,7 +136,7 @@ def generar_codigo_vinculacion(
     """
     import random
     import string
-    from datetime import datetime, timedelta
+    from datetime import datetime, timedelta, timezone
     from models.studio_config import StudioConfig
 
     config = db.query(StudioConfig).first()
@@ -146,7 +146,7 @@ def generar_codigo_vinculacion(
 
     codigo = "".join(random.choices(string.ascii_uppercase + string.digits, k=8))
     config.telegram_connect_code = codigo
-    config.telegram_connect_expires_at = datetime.utcnow() + timedelta(minutes=30)
+    config.telegram_connect_expires_at = datetime.now(timezone.utc) + timedelta(minutes=30)
     db.commit()
 
     return {

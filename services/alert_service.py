@@ -1,5 +1,5 @@
 import logging
-from datetime import date, datetime
+from datetime import date, datetime, timezone
 
 from fastapi import HTTPException
 from sqlalchemy.orm import Session
@@ -210,7 +210,7 @@ def _intentar_notificar_telegram(db: Session, alerta: "AlertaVencimiento", venc)
             alerta.id,
         )
         alerta.sent_via_telegram = True
-        alerta.telegram_sent_at = datetime.utcnow()
+        alerta.telegram_sent_at = datetime.now(timezone.utc)
     except Exception as e:
         logger.warning("No se pudo enviar alerta Telegram: %s", e)
 
@@ -297,7 +297,7 @@ def resolver_alerta(db: Session, alerta_id: int, studio_id: int) -> dict:
     ).first()
     if not alerta:
         raise HTTPException(status_code=404, detail="Alerta no encontrada")
-    alerta.resuelta_at = datetime.utcnow()
+    alerta.resuelta_at = datetime.now(timezone.utc)
     db.commit()
     return {"id": alerta.id, "resuelta_at": alerta.resuelta_at.isoformat()}
 
@@ -308,7 +308,7 @@ def ignorar_alerta(db: Session, alerta_id: int, studio_id: int) -> dict:
     ).first()
     if not alerta:
         raise HTTPException(status_code=404, detail="Alerta no encontrada")
-    alerta.ignorada_at = datetime.utcnow()
+    alerta.ignorada_at = datetime.now(timezone.utc)
     db.commit()
     return {"id": alerta.id, "ignorada_at": alerta.ignorada_at.isoformat()}
 
@@ -397,7 +397,7 @@ def crear_alerta_manual(db: Session, studio_id: int, data: dict) -> dict:
         try:
             _enviar_alerta_manual_email(db, alerta, studio_id)
             alerta.sent_via_email = True
-            alerta.email_sent_at = datetime.utcnow()
+            alerta.email_sent_at = datetime.now(timezone.utc)
         except Exception as e:
             logger.warning("No se pudo enviar alerta manual por email: %s", e)
 
@@ -412,7 +412,7 @@ def crear_alerta_manual(db: Session, studio_id: int, data: dict) -> dict:
         )
         db.add(notif)
         alerta.sent_via_portal = True
-        alerta.portal_sent_at = datetime.utcnow()
+        alerta.portal_sent_at = datetime.now(timezone.utc)
 
     db.commit()
     db.refresh(alerta)
@@ -492,17 +492,22 @@ def generar_alertas_mora(db: Session, studio_id: int) -> int:
     """Genera alertas para clientes con cobros vencidos (mora en abono)."""
     generadas = 0
     try:
-        from models.abono import Cobro, EstadoCobro
+        from models.abono import Abono, Cobro, EstadoCobro
         from models.cliente import Cliente
 
-        cobros_vencidos = db.query(Cobro).join(
-            Cliente, Cobro.cliente_id == Cliente.id
-        ).filter(
-            Cliente.studio_id == studio_id,
-            Cobro.estado == EstadoCobro.vencido,
-        ).all()
+        # Cobro no tiene cliente_id directo — debe navegarse a través de Abono
+        cobros_vencidos = (
+            db.query(Cobro, Abono)
+            .join(Abono, Cobro.abono_id == Abono.id)
+            .join(Cliente, Abono.cliente_id == Cliente.id)
+            .filter(
+                Cliente.studio_id == studio_id,
+                Cobro.estado == EstadoCobro.vencido,
+            )
+            .all()
+        )
 
-        for cobro in cobros_vencidos:
+        for cobro, abono in cobros_vencidos:
             # Verificar que no exista alerta activa del mismo tipo para este cobro
             existente = db.query(AlertaVencimiento).filter(
                 AlertaVencimiento.studio_id == studio_id,
@@ -514,14 +519,14 @@ def generar_alertas_mora(db: Session, studio_id: int) -> int:
             if existente:
                 continue
 
-            cliente = db.query(Cliente).filter(Cliente.id == cobro.cliente_id).first()
-            nombre = cliente.nombre if cliente else f"Cliente #{cobro.cliente_id}"
+            cliente = db.query(Cliente).filter(Cliente.id == abono.cliente_id).first()
+            nombre = cliente.nombre if cliente else f"Cliente #{abono.cliente_id}"
             monto = getattr(cobro, "monto", 0)
             periodo = getattr(cobro, "periodo", "")
 
             alerta = AlertaVencimiento(
                 studio_id=studio_id,
-                cliente_id=cobro.cliente_id,
+                cliente_id=abono.cliente_id,
                 tipo="mora",
                 origen="sistema",
                 titulo=f"Cobro vencido — {nombre}",

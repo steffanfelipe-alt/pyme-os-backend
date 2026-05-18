@@ -125,7 +125,7 @@ def test_umbral_personalizado_activa_recalculo_con_menos_instancias(client, db, 
     )
 
     tid = template_b1["id"]
-    from datetime import datetime, timedelta
+    from datetime import datetime, timedelta, timezone
 
     # Crear 3 instancias completadas manualmente en la DB
     studio_id = _get_or_create_studio(db)
@@ -134,8 +134,8 @@ def test_umbral_personalizado_activa_recalculo_con_menos_instancias(client, db, 
             template_id=tid,
             studio_id=studio_id,
             estado=EstadoInstancia.completado,
-            fecha_inicio=datetime.utcnow() - timedelta(hours=2),
-            fecha_fin=datetime.utcnow(),
+            fecha_inicio=datetime.now(timezone.utc) - timedelta(hours=2),
+            fecha_fin=datetime.now(timezone.utc),
         )
         db.add(inst)
     db.commit()

@@ -48,7 +48,7 @@ def obtener_tareas_por_token(db: Session, token: str) -> dict:
     if not portal:
         raise HTTPException(status_code=404, detail="Token inválido o expirado")
 
-    if portal.expira_at and portal.expira_at < datetime.utcnow():
+    if portal.expira_at and portal.expira_at < datetime.now(timezone.utc):
         raise HTTPException(status_code=410, detail="Token expirado")
 
     tareas = db.query(Tarea).filter(

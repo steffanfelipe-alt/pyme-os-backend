@@ -11,7 +11,6 @@ from sqlalchemy.orm import Session
 from database import SessionLocal
 from models.cliente import Cliente
 from models.empleado import Empleado
-from models.studio_config import StudioConfig
 from models.vencimiento import EstadoVencimiento, Vencimiento
 from services import alert_service
 
@@ -77,13 +76,10 @@ def job_notificaciones_vencimientos() -> None:
     try:
         hoy = date.today()
 
-        # Leer umbral desde DB; fallback al valor por defecto si no hay config
-        studio_config = db.query(StudioConfig).first()
-        umbral_dias = (
-            studio_config.umbral_dias_notificacion
-            if studio_config is not None
-            else _UMBRAL_DIAS_DEFAULT
-        )
+        # Usar umbral default para el job global; cada studio tiene su propio
+        # config pero este job procesa todos por igual (la lógica per-studio
+        # está en generar_alertas, más abajo)
+        umbral_dias = _UMBRAL_DIAS_DEFAULT
         limite = hoy + timedelta(days=umbral_dias)
 
         # Auto-marcar vencidos (global, afecta todos los estudios intencionalmente)

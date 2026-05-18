@@ -238,7 +238,7 @@ def _parsear_fecha(fecha_str: str) -> datetime:
     try:
         return parsedate_to_datetime(fecha_str).replace(tzinfo=None)
     except Exception:
-        return datetime.utcnow()
+        return datetime.now(timezone.utc).replace(tzinfo=None)
 
 
 # ---------------------------------------------------------------------------
