@@ -11,12 +11,20 @@ from models.vencimiento import EstadoVencimiento, Vencimiento
 logger = logging.getLogger("pymeos")
 
 
-# Umbral de días por defecto (puede sobreescribirse desde StudioConfig)
+# Umbral de días por defecto (puede sobreescribirse desde Studio o StudioConfig)
 _UMBRAL_DIAS_DEFAULT = 5
 
 
-def _get_umbral_dias(db: Session) -> int:
-    """Lee umbral_dias_notificacion de StudioConfig o usa el default de 5."""
+def _get_umbral_dias(db: Session, studio_id: int | None = None) -> int:
+    """Lee alerta_vencimiento_dias del Studio; fallback a StudioConfig singleton o default de 5."""
+    if studio_id is not None:
+        try:
+            from models.studio import Studio
+            studio = db.query(Studio).filter(Studio.id == studio_id).first()
+            if studio and studio.alerta_vencimiento_dias:
+                return int(studio.alerta_vencimiento_dias)
+        except Exception:
+            pass
     try:
         from models.studio_config import StudioConfig
         cfg = db.query(StudioConfig).first()
@@ -107,7 +115,7 @@ def generar_alertas(db: Session, studio_id: int) -> list[dict]:
     caen dentro del umbral configurado. Retorna la lista de alertas generadas/actualizadas.
     """
     hoy = date.today()
-    umbral = _get_umbral_dias(db)
+    umbral = _get_umbral_dias(db, studio_id)
 
     vencimientos = db.query(Vencimiento).filter(
         Vencimiento.studio_id == studio_id,
@@ -171,7 +179,7 @@ def generar_alertas(db: Session, studio_id: int) -> list[dict]:
 
         # Notificar via Telegram si hay canal activo y aún no se envió
         if nivel == "critica" and not alerta.sent_via_telegram:
-            _intentar_notificar_telegram(db, alerta, venc)
+            _intentar_notificar_telegram(db, alerta, venc, studio_id)
 
         generadas.append({
             "vencimiento_id": venc.id,
@@ -186,7 +194,7 @@ def generar_alertas(db: Session, studio_id: int) -> list[dict]:
     return generadas
 
 
-def _intentar_notificar_telegram(db: Session, alerta: "AlertaVencimiento", venc) -> None:
+def _intentar_notificar_telegram(db: Session, alerta: "AlertaVencimiento", venc, studio_id: int) -> None:
     """Envía alerta crítica por Telegram si el estudio tiene el canal activo."""
     try:
         from models.cliente import Cliente
@@ -503,7 +511,6 @@ def generar_alertas_mora(db: Session, studio_id: int) -> int:
         ).all()
 
         for cobro in cobros_vencidos:
-            # Verificar que no exista alerta activa del mismo tipo para este cobro
             existente = db.query(AlertaVencimiento).filter(
                 AlertaVencimiento.studio_id == studio_id,
                 AlertaVencimiento.cobro_id == cobro.id,
@@ -658,7 +665,6 @@ def generar_alertas_documentacion(db: Session, studio_id: int, dias_anticipacion
         ).all()
 
         for venc in vencimientos:
-            # Verificar si hay documentos pendientes
             docs_pendientes = db.query(Documento).filter(
                 Documento.cliente_id == venc.cliente_id,
                 Documento.activo == True,
