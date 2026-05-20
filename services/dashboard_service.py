@@ -62,7 +62,7 @@ def obtener_dashboard(db: Session, contador_id: Optional[int] = None, studio_id:
         logger.error("Error generando dashboard: %s", exc, exc_info=True)
         return DashboardResponse(
             bloque_riesgo=BloqueRiesgo(
-                vencimientos_sin_doc=[],
+                vencimientos_sin_docs=[],
                 clientes_sin_actividad=[],
                 tareas_retrasadas=[],
                 alertas_activas=ResumenAlertas(criticas=0, advertencias=0, informativas=0),
@@ -70,7 +70,7 @@ def obtener_dashboard(db: Session, contador_id: Optional[int] = None, studio_id:
             bloque_carga=BloqueCarga(
                 carga_por_contador=[],
                 completadas_a_tiempo=CompletadasATiempo(total_pct=0.0, mes_anterior_pct=None),
-                tiempo_promedio_por_tipo=[],
+                tiempo_promedio_resolucion=[],
                 indice_concentracion=IndiceConcentracion(alerta=False, top_contador_pct=0.0, mensaje=None),
             ),
             bloque_salud=BloqueSalud(
