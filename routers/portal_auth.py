@@ -85,12 +85,6 @@ def login_portal(data: LoginPortalRequest, db: Session = Depends(get_db)):
 
 # ─── Endpoints del portal (autenticados con JWT de portal) ────────────────────
 
-def _get_portal_cliente(token: str = None, db: Session = None):
-    """Dependencia: extrae cliente_id del JWT de portal."""
-    from fastapi import Header
-    raise NotImplementedError("Use _require_portal_token en cada endpoint")
-
-
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from fastapi import Security
 
