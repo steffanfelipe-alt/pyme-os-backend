@@ -2,6 +2,7 @@
 Servicio de negocio para Facturación Electrónica.
 Orquesta validaciones, emisión ARCA, PDF y persistencia.
 """
+import base64
 import logging
 import os
 from datetime import date, datetime, timezone
@@ -114,8 +115,6 @@ def obtener_config_arca(studio_id: int, db: Session) -> dict:
 
 # ─── Comprobantes ─────────────────────────────────────────────────────────────
 
-import base64
-
 
 def listar_comprobantes(
     studio_id: int,
@@ -141,7 +140,11 @@ def emitir_comprobante(studio_id: int, data: ComprobanteCreate, db: Session) -> 
     """Flujo completo: valida → llama ARCA → guarda CAE."""
     cfg = _get_config_o_400(studio_id, db)
 
-    cliente = db.query(Cliente).filter(Cliente.id == data.cliente_id, Cliente.activo == True).first()
+    cliente = db.query(Cliente).filter(
+        Cliente.id == data.cliente_id,
+        Cliente.studio_id == studio_id,
+        Cliente.activo == True,
+    ).first()
     if not cliente:
         raise HTTPException(status_code=404, detail="Cliente no encontrado")
 

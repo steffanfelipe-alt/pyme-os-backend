@@ -15,7 +15,7 @@ from sqlalchemy.orm import Session
 from auth import create_access_token, hash_password
 from auth_dependencies import get_studio_id, require_rol, solo_dueno
 from database import get_db
-from models.cliente import Cliente
+from models.cliente import Cliente, CondicionFiscal, TipoPersona
 from models.empleado import Empleado, RolEmpleado
 from models.onboarding_pasos import OnboardingPasos
 from models.studio import Studio
@@ -162,7 +162,7 @@ def siguientes_pasos(
     # 1. Completar categorías fiscales faltantes
     clientes_sin_cat = db.query(Cliente).filter(
         Cliente.studio_id == studio_id,
-        Cliente.requiere_categoria == True,
+        Cliente.condicion_fiscal == CondicionFiscal.sujeto_no_categorizado,
         Cliente.activo == True,
     ).count()
     if clientes_sin_cat > 0:
@@ -318,7 +318,18 @@ async def importar_clientes_csv(
     texto = contenido.decode("utf-8-sig", errors="replace")
     reader = csv.DictReader(io.StringIO(texto))
 
-    CATEGORIAS_VALIDAS = {"monotributista", "responsable_inscripto", "sociedad", "empleador", "otro"}
+    CAT_TO_CONDICION = {
+        "monotributista": CondicionFiscal.monotributista,
+        "responsable_inscripto": CondicionFiscal.responsable_inscripto,
+        "sociedad": CondicionFiscal.responsable_inscripto,
+        "empleador": CondicionFiscal.responsable_inscripto,
+        "otro": CondicionFiscal.sujeto_no_categorizado,
+        "exento": CondicionFiscal.exento,
+        "no_responsable": CondicionFiscal.no_responsable,
+        "relacion_de_dependencia": CondicionFiscal.relacion_de_dependencia,
+        "autonomos": CondicionFiscal.autonomos,
+        "sujeto_no_categorizado": CondicionFiscal.sujeto_no_categorizado,
+    }
 
     importados = 0
     saltados = 0
@@ -336,38 +347,32 @@ async def importar_clientes_csv(
         # Verificar duplicado por CUIT
         existente = db.query(Cliente).filter(
             Cliente.studio_id == studio_id,
-            Cliente.cuit == cuit,
+            Cliente.cuit_cuil == cuit,
         ).first()
         if existente:
             saltados += 1
             continue
 
         cat_raw = (fila.get("categoria_fiscal") or "").strip().lower()
-        categoria = cat_raw if cat_raw in CATEGORIAS_VALIDAS else None
-        requiere_cat = categoria is None
-
-        if requiere_cat:
+        condicion = CAT_TO_CONDICION.get(cat_raw)
+        if condicion is None:
+            condicion = CondicionFiscal.sujeto_no_categorizado
             sin_categoria += 1
 
-        from models.cliente import TipoCliente, TipoPersona
         cliente = Cliente(
             studio_id=studio_id,
             nombre=nombre,
-            cuit=cuit,
+            cuit_cuil=cuit,
+            tipo_persona=TipoPersona.fisica,
+            condicion_fiscal=condicion,
             email=(fila.get("email") or "").strip() or None,
             telefono=(fila.get("telefono") or "").strip() or None,
-            requiere_categoria=requiere_cat,
         )
-        if categoria:
-            try:
-                cliente.categoria_fiscal = categoria
-            except Exception:
-                pass
         db.add(cliente)
         db.flush()
 
-        if categoria and not requiere_cat:
-            n = _sugerir_vencimientos(db, studio_id, cliente.id, categoria, cuit)
+        if condicion != CondicionFiscal.sujeto_no_categorizado:
+            n = _sugerir_vencimientos(db, studio_id, cliente.id, condicion.value, cuit)
             vencimientos_sugeridos += n
 
         importados += 1
@@ -509,13 +514,13 @@ def sugerir_vencimientos_endpoint(
     if not cliente:
         raise HTTPException(status_code=404, detail="Cliente no encontrado")
 
-    cat = getattr(cliente, "categoria_fiscal", None)
-    if cat is None:
+    cat = getattr(cliente, "condicion_fiscal", None)
+    if cat is None or cat == CondicionFiscal.sujeto_no_categorizado:
         return {"sin_configurar": True, "mensaje": "Cliente sin categoría fiscal"}
     if hasattr(cat, "value"):
         cat = cat.value
 
-    cuit = getattr(cliente, "cuit", "") or ""
+    cuit = getattr(cliente, "cuit_cuil", "") or ""
     n = _sugerir_vencimientos(db, studio_id, cliente_id, str(cat), cuit)
     db.commit()
     return {"sugerencias_creadas": n}
@@ -542,7 +547,7 @@ def listar_sugeridos(
     resultado = {}
     for s in sugeridos:
         cliente = clientes_map.get(s.cliente_id)
-        cat = getattr(cliente, "categoria_fiscal", None)
+        cat = getattr(cliente, "condicion_fiscal", None)
         if hasattr(cat, "value"):
             cat = cat.value
         key = s.cliente_id
