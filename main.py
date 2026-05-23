@@ -32,6 +32,8 @@ import models.vencimiento_sugerido  # noqa: F401
 import models.portal_usuario  # noqa: F401
 import models.portal_notificacion  # noqa: F401
 import models.onboarding_pasos  # noqa: F401
+import models.alerta  # noqa: F401
+import models.studio_config  # noqa: F401
 
 from routers import (
     agent_assistant, agent_dashboard, alertas, alerts, auth_router, automatizaciones, automatizaciones_python,

@@ -551,7 +551,7 @@ def generar_alertas_riesgo(db: Session, studio_id: int, umbral: int = 70) -> int
         ).all()
 
         for cliente in clientes:
-            score = getattr(cliente, "score_riesgo", None)
+            score = getattr(cliente, "risk_score", None)
             if score is None or score < umbral:
                 continue
 

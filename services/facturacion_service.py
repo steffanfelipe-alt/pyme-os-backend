@@ -2,6 +2,7 @@
 Servicio de negocio para Facturación Electrónica.
 Orquesta validaciones, emisión ARCA, PDF y persistencia.
 """
+import base64
 import logging
 import os
 from datetime import date, datetime, timezone
@@ -24,6 +25,16 @@ from services import arca_service
 logger = logging.getLogger("pymeos")
 
 _ALICUOTAS_VALIDAS = {0.0, 10.5, 21.0, 27.0}
+
+# Condiciones fiscales que NO pueden recibir comprobantes tipo A
+_CONDICIONES_NO_RI = {
+    "monotributista",
+    "exento",
+    "no_responsable",
+    "relacion_de_dependencia",
+    "autonomos",
+    "sujeto_no_categorizado",
+}
 
 
 # ─── Helpers ──────────────────────────────────────────────────────────────────
@@ -51,17 +62,18 @@ def _get_comprobante_o_404(comp_id: int, studio_id: int, db: Session) -> Comprob
 def _validar_tipo_x_condicion(tipo_cbte: str, cliente: Cliente) -> None:
     """
     Valida coherencia entre tipo de comprobante y condición fiscal del cliente.
-    RI → A, Consumidor Final/Monotributista → B o C.
+    RI → A, todos los demás → B o C.
     """
     condicion = getattr(cliente, "condicion_fiscal", None)
     if not condicion:
         return
-    if condicion == "responsable_inscripto" and tipo_cbte.upper() != "A":
+    # condicion_fiscal es un str-enum, la comparación directa con string funciona
+    if str(condicion) == "responsable_inscripto" and tipo_cbte.upper() != "A":
         raise HTTPException(
             status_code=400,
             detail="El cliente es Responsable Inscripto — el comprobante debe ser tipo A.",
         )
-    if condicion in {"monotributista", "consumidor_final", "exento"} and tipo_cbte.upper() == "A":
+    if str(condicion) in _CONDICIONES_NO_RI and tipo_cbte.upper() == "A":
         raise HTTPException(
             status_code=400,
             detail=f"Cliente {condicion} — el comprobante debe ser tipo B o C (no A).",
@@ -113,9 +125,6 @@ def obtener_config_arca(studio_id: int, db: Session) -> dict:
 
 
 # ─── Comprobantes ─────────────────────────────────────────────────────────────
-
-import base64
-
 
 def listar_comprobantes(
     studio_id: int,
