@@ -75,7 +75,7 @@ def _validar_telegram_request(request: Request) -> None:
 def _get_wizard(db: Session, telegram_user_id: str) -> AsistenteSesionWizard | None:
     return db.query(AsistenteSesionWizard).filter(
         AsistenteSesionWizard.telegram_user_id == telegram_user_id,
-        AsistenteSesionWizard.expira_at >= datetime.utcnow(),
+        AsistenteSesionWizard.expira_at >= datetime.now(timezone.utc),
     ).first()
 
 
@@ -93,7 +93,7 @@ def _start_wizard(db: Session, telegram_user_id: str, comando: str) -> Asistente
         comando=comando,
         paso_actual=0,
         datos_parciales={},
-        expira_at=datetime.utcnow() + timedelta(minutes=15),
+        expira_at=datetime.now(timezone.utc) + timedelta(minutes=15),
     )
     db.add(wizard)
     db.commit()
@@ -391,7 +391,11 @@ async def _crear_tarea_desde_wizard(db: Session, datos: dict, telegram_user_id: 
         AsistenteCanal.activo == True,
     ).first()
     empleado = db.query(Empleado).filter(Empleado.id == canal.usuario_id).first() if canal else None
-    studio_id = empleado.studio_id if empleado else 1
+    if not empleado:
+        logger.warning("Telegram wizard task: canal o empleado no encontrado para user %s", telegram_user_id)
+        await tg.send_message(int(telegram_user_id), "No pude identificar tu cuenta. Revinculá el bot con /vincular.")
+        return
+    studio_id = empleado.studio_id
 
     fecha_limite = None
     if datos.get("fecha_limite"):
@@ -538,7 +542,11 @@ async def _crear_cliente_desde_wizard(db: Session, datos: dict, telegram_user_id
         AsistenteCanal.activo == True,
     ).first()
     empleado = db.query(Empleado).filter(Empleado.id == canal.usuario_id).first() if canal else None
-    studio_id = empleado.studio_id if empleado else 1
+    if not empleado:
+        logger.warning("Telegram wizard cliente: canal o empleado no encontrado para user %s", telegram_user_id)
+        await tg.send_message(int(telegram_user_id), "No pude identificar tu cuenta. Revinculá el bot con /vincular.")
+        return
+    studio_id = empleado.studio_id
 
     cliente_data = ClienteCreate(
         tipo_persona=TipoPersona.fisica,
@@ -571,7 +579,11 @@ async def _handle_resolve_alert(db: Session, callback_data: str, telegram_user_i
             AsistenteCanal.activo == True,
         ).first()
         empleado = db.query(Empleado).filter(Empleado.id == canal.usuario_id).first() if canal else None
-        studio_id = empleado.studio_id if empleado else 1
+        if not empleado:
+            logger.warning("Telegram resolve_alert: canal o empleado no encontrado para user %s", telegram_user_id)
+            await tg.send_message(int(telegram_user_id), "No pude identificar tu cuenta para resolver la alerta.")
+            return
+        studio_id = empleado.studio_id
 
         resolver_alerta(db, alerta_id, studio_id)
         await tg.send_message(int(telegram_user_id), "✅ Alerta marcada como resuelta.")
