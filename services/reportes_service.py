@@ -3,7 +3,7 @@ Módulo de Reportes — endpoints de consulta agregada que cruzan tablas existen
 No genera nueva lógica de negocio; usa los datos ya registrados en el sistema.
 """
 import calendar
-from datetime import date, datetime
+from datetime import date, datetime, timezone
 from decimal import Decimal
 from typing import Optional
 
@@ -571,7 +571,7 @@ def reporte_resumen(db: Session, periodo: Optional[str], studio_id: int = None) 
 def _calcular_cobertura_sops(db: Session, studio_id: int = None) -> dict:
     """Calcula cobertura de SOPs sobre procesos activos."""
     from datetime import datetime, timedelta
-    hoy = datetime.utcnow()
+    hoy = datetime.now(timezone.utc)
     hace_90_dias = hoy - timedelta(days=90)
 
     tmpl_f = [ProcesoTemplate.activo == True]
@@ -630,7 +630,7 @@ def reporte_madurez(db: Session, studio_id: int = None) -> dict:
     """Calcula la etapa de madurez del estudio según SYSTEMology."""
     from datetime import datetime, timedelta
 
-    hoy = datetime.utcnow()
+    hoy = datetime.now(timezone.utc)
     hace_90_dias = hoy - timedelta(days=90)
 
     # Indicadores

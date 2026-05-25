@@ -1,7 +1,7 @@
 """
 Tests del diagnóstico de madurez (Bloque 4).
 """
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 
 import pytest
 
@@ -49,8 +49,8 @@ def _crear_instancias_completadas(db, template_id: int, cantidad: int):
             template_id=template_id,
             studio_id=studio_id,
             estado=EstadoInstancia.completado,
-            fecha_inicio=datetime.utcnow() - timedelta(days=5),
-            fecha_fin=datetime.utcnow() - timedelta(days=1),
+            fecha_inicio=datetime.now(timezone.utc) - timedelta(days=5),
+            fecha_fin=datetime.now(timezone.utc) - timedelta(days=1),
         )
         db.add(inst)
     db.commit()
@@ -64,7 +64,7 @@ def _crear_sops_activos(db, cantidad: int, proceso_id: int = None) -> list[SopDo
             titulo=f"SOP {i+1}",
             area="impuestos",
             estado=EstadoSop.activo,
-            fecha_ultima_revision=datetime.utcnow(),
+            fecha_ultima_revision=datetime.now(timezone.utc),
             proceso_id=proceso_id,
             studio_id=studio_id,
         )
@@ -84,7 +84,7 @@ def _crear_automatizaciones_aprobadas(db, template_id: int, cantidad: int):
             studio_id=studio_id,
             ahorro_horas_mes=5.0,
             estado_revision=EstadoRevisionAutomatizacion.aprobada,
-            aprobado_at=datetime.utcnow(),
+            aprobado_at=datetime.now(timezone.utc),
         )
         db.add(a)
     db.commit()

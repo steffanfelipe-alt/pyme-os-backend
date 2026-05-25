@@ -5,7 +5,7 @@ import json
 import logging
 import os
 import uuid
-from datetime import date
+from datetime import date, timezone
 from io import BytesIO
 from pathlib import Path
 from typing import Any, Optional
@@ -279,7 +279,7 @@ async def subir_documento(
             ).all()
             for alerta in alertas_abiertas:
                 from datetime import datetime
-                alerta.resuelta_at = datetime.utcnow()
+                alerta.resuelta_at = datetime.now(timezone.utc)
             if alertas_abiertas:
                 db.commit()
                 logger.info(

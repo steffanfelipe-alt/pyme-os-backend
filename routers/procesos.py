@@ -108,8 +108,9 @@ def actualizar_paso(
     data: ProcesoPasoTemplateUpdate,
     db: Session = Depends(get_db),
     current_user: dict = Depends(require_rol("dueno", "contador")),
+    studio_id: int = Depends(get_studio_id),
 ):
-    return proceso_service.actualizar_paso(db, paso_id, data)
+    return proceso_service.actualizar_paso(db, paso_id, data, studio_id)
 
 
 @router.delete("/pasos-template/{paso_id}", status_code=204)
@@ -117,8 +118,9 @@ def eliminar_paso(
     paso_id: int,
     db: Session = Depends(get_db),
     current_user: dict = Depends(solo_dueno),
+    studio_id: int = Depends(get_studio_id),
 ):
-    proceso_service.eliminar_paso(db, paso_id)
+    proceso_service.eliminar_paso(db, paso_id, studio_id)
 
 
 # ─── Instancias ───────────────────────────────────────────────────────────────

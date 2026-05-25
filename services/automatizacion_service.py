@@ -3,7 +3,7 @@ CRUD de Automatizacion — sin llamadas a Claude API.
 La lógica de IA vive en optimizador_service.py.
 """
 import logging
-from datetime import datetime
+from datetime import datetime, timezone
 
 from fastapi import HTTPException
 from sqlalchemy.orm import Session
@@ -114,7 +114,7 @@ def listar_pendientes_revision(db: Session, studio_id: int = None) -> list[Autom
 def aprobar_automatizacion(db: Session, automatizacion_id: int) -> Automatizacion:
     aut = obtener_automatizacion(db, automatizacion_id)
     aut.estado_revision = EstadoRevisionAutomatizacion.aprobada
-    aut.aprobado_at = datetime.utcnow()
+    aut.aprobado_at = datetime.now(timezone.utc)
     db.commit()
     db.refresh(aut)
     return aut
