@@ -146,6 +146,7 @@ def register(request: Request, data: RegisterRequest, db: Session = Depends(get_
     token = create_access_token({
         "sub": str(usuario.id),
         "email": usuario.email,
+        "nombre": empleado.nombre,
         "rol": empleado.rol,
         "empleado_id": empleado.id,
         "studio_id": empleado.studio_id,
@@ -168,6 +169,7 @@ def login(request: Request, data: LoginRequest, db: Session = Depends(get_db)):
     token = create_access_token({
         "sub": str(usuario.id),
         "email": usuario.email,
+        "nombre": empleado.nombre if empleado else usuario.nombre,
         "rol": empleado.rol if empleado else None,
         "empleado_id": empleado.id if empleado else None,
         "studio_id": usuario.studio_id,

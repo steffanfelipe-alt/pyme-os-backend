@@ -84,12 +84,13 @@ def actualizar_automatizacion_python(
     data: AutomatizacionPythonUpdate,
     db: Session = Depends(get_db),
     current_user: dict = Depends(require_rol("dueno", "contador")),
+    studio_id: int = Depends(get_studio_id),
 ):
     """
     Actualiza nombre, descripción, estado, nodos o conexiones.
     Llamado por el canvas visual cada vez que el usuario mueve o edita un nodo.
     """
-    return automatizacion_python_service.actualizar_automatizacion_python(db, auto_id, data)
+    return automatizacion_python_service.actualizar_automatizacion_python(db, auto_id, data, studio_id)
 
 
 @router.post("/{auto_id}/generar-codigo", response_model=AutomatizacionPythonResponse)
@@ -97,12 +98,13 @@ async def generar_codigo(
     auto_id: int,
     db: Session = Depends(get_db),
     current_user: dict = Depends(require_rol("dueno", "contador")),
+    studio_id: int = Depends(get_studio_id),
 ):
     """
     Genera código Python ejecutable a partir del grafo de nodos actual.
     El código incorpora los inputs_configurados del usuario.
     """
-    return await automatizacion_python_service.generar_codigo_python(db, auto_id)
+    return await automatizacion_python_service.generar_codigo_python(db, auto_id, studio_id)
 
 
 @router.get("/{auto_id}/inputs-requeridos", response_model=list[InputRequeridoPendiente])
@@ -110,12 +112,13 @@ def obtener_inputs_requeridos(
     auto_id: int,
     db: Session = Depends(get_db),
     current_user: dict = Depends(require_rol("dueno", "contador")),
+    studio_id: int = Depends(get_studio_id),
 ):
     """
     Retorna los inputs pendientes de configurar en los nodos.
     El frontend muestra un formulario por nodo con los campos faltantes.
     """
-    pendientes = automatizacion_python_service.obtener_inputs_requeridos(db, auto_id)
+    pendientes = automatizacion_python_service.obtener_inputs_requeridos(db, auto_id, studio_id)
     return [
         InputRequeridoPendiente(
             node_id=p["node_id"],
@@ -133,12 +136,13 @@ def configurar_inputs(
     data: ConfigurarInputsRequest,
     db: Session = Depends(get_db),
     current_user: dict = Depends(require_rol("dueno", "contador")),
+    studio_id: int = Depends(get_studio_id),
 ):
     """
     Guarda los valores de inputs provistos por el usuario para los nodos.
     Body: { "inputs": { "node_id": { "campo": "valor" } } }
     """
-    return automatizacion_python_service.aplicar_inputs(db, auto_id, data.inputs)
+    return automatizacion_python_service.aplicar_inputs(db, auto_id, data.inputs, studio_id)
 
 
 @router.patch("/{auto_id}/activar", response_model=AutomatizacionPythonResponse)
@@ -146,20 +150,21 @@ def activar_automatizacion_python(
     auto_id: int,
     db: Session = Depends(get_db),
     current_user: dict = Depends(require_rol("dueno", "contador")),
+    studio_id: int = Depends(get_studio_id),
 ):
     """
     Activa la automatización (borrador → activo).
     Requiere que todos los inputs requeridos de los nodos estén configurados.
     Retorna HTTP 400 con detalle de qué nodos faltan si no está lista.
     """
-    pendientes = automatizacion_python_service.obtener_inputs_requeridos(db, auto_id)
+    pendientes = automatizacion_python_service.obtener_inputs_requeridos(db, auto_id, studio_id)
     if pendientes:
         nodos_pendientes = ", ".join(p["node_name"] for p in pendientes)
         raise HTTPException(
             status_code=400,
             detail=f"Configurá los inputs requeridos antes de activar: {nodos_pendientes}",
         )
-    auto = automatizacion_python_service.obtener_automatizacion_python(db, auto_id)
+    auto = automatizacion_python_service.obtener_automatizacion_python(db, auto_id, studio_id)
     auto.estado = EstadoAutomatizacionPython.activo
     db.commit()
     db.refresh(auto)
