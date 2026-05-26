@@ -199,22 +199,14 @@ def job_notificaciones_vencimientos() -> None:
 
 
 def job_resumen_semanal_email() -> None:
-    """Job semanal (lunes 8:00 AM AR): envía resumen consolidado al dueño del estudio."""
+    """Job semanal (lunes 8:00 AM AR): envía resumen consolidado al dueño de cada estudio."""
     logger.info("Job resumen semanal — iniciando")
 
     db: Session = SessionLocal()
     try:
-        from models.empleado import RolEmpleado
         from models.alerta import AlertaVencimiento
-
-        # Buscar dueño del estudio
-        dueno = db.query(Empleado).filter(
-            Empleado.rol == RolEmpleado.dueno,
-            Empleado.activo == True,
-        ).first()
-        if not dueno or not dueno.email:
-            logger.warning("Job resumen semanal — no hay dueño con email configurado")
-            return
+        from models.empleado import RolEmpleado
+        from models.studio import Studio
 
         if not all([MAIL_FROM, SMTP_HOST, SMTP_USER, SMTP_PASSWORD]):
             logger.warning("Job resumen semanal — SMTP no configurado")
@@ -222,70 +214,90 @@ def job_resumen_semanal_email() -> None:
 
         hoy = date.today()
         fin_semana = hoy + timedelta(days=7)
+        emails_enviados = 0
 
-        # Vencimientos de la semana
-        vencimientos_semana = (
-            db.query(Vencimiento, Cliente)
-            .join(Cliente, Vencimiento.cliente_id == Cliente.id)
-            .filter(
-                Vencimiento.estado == EstadoVencimiento.pendiente,
-                Vencimiento.fecha_vencimiento >= hoy,
-                Vencimiento.fecha_vencimiento <= fin_semana,
-                Cliente.activo == True,
+        studios = db.query(Studio).all()
+        for studio in studios:
+            studio_id = studio.id
+
+            dueno = db.query(Empleado).filter(
+                Empleado.studio_id == studio_id,
+                Empleado.rol == RolEmpleado.dueno,
+                Empleado.activo == True,
+            ).first()
+            if not dueno or not dueno.email:
+                continue
+
+            vencimientos_semana = (
+                db.query(Vencimiento, Cliente)
+                .join(Cliente, Vencimiento.cliente_id == Cliente.id)
+                .filter(
+                    Vencimiento.estado == EstadoVencimiento.pendiente,
+                    Vencimiento.fecha_vencimiento >= hoy,
+                    Vencimiento.fecha_vencimiento <= fin_semana,
+                    Cliente.activo == True,
+                    Cliente.studio_id == studio_id,
+                )
+                .order_by(Vencimiento.fecha_vencimiento)
+                .all()
             )
-            .order_by(Vencimiento.fecha_vencimiento)
-            .all()
-        )
 
-        # Alertas activas
-        alertas_activas = db.query(AlertaVencimiento).filter(
-            AlertaVencimiento.resuelta_at == None
-        ).count()
+            alertas_activas = 0
+            alertas_criticas = 0
+            try:
+                alertas_activas = db.query(AlertaVencimiento).filter(
+                    AlertaVencimiento.resuelta_at == None,
+                    AlertaVencimiento.studio_id == studio_id,
+                ).count()
+                alertas_criticas = db.query(AlertaVencimiento).filter(
+                    AlertaVencimiento.resuelta_at == None,
+                    AlertaVencimiento.nivel == "critica",
+                    AlertaVencimiento.studio_id == studio_id,
+                ).count()
+            except Exception:
+                pass
 
-        alertas_criticas = db.query(AlertaVencimiento).filter(
-            AlertaVencimiento.resuelta_at == None,
-            AlertaVencimiento.nivel == "critica",
-        ).count()
+            clientes_activos = db.query(Cliente).filter(
+                Cliente.activo == True,
+                Cliente.studio_id == studio_id,
+            ).count()
 
-        # Clientes con documentación pendiente
-        clientes_activos = db.query(Cliente).filter(Cliente.activo == True).count()
+            lineas = [
+                f"<h2>Resumen semanal — {hoy.strftime('%d/%m/%Y')}</h2>",
+                f"<p><b>Clientes activos:</b> {clientes_activos}</p>",
+                f"<p><b>Alertas activas:</b> {alertas_activas} ({alertas_criticas} críticas)</p>",
+                f"<h3>Vencimientos esta semana ({len(vencimientos_semana)})</h3>",
+            ]
 
-        # Construir email
-        lineas = [
-            f"<h2>Resumen semanal — {hoy.strftime('%d/%m/%Y')}</h2>",
-            f"<p><b>Clientes activos:</b> {clientes_activos}</p>",
-            f"<p><b>Alertas activas:</b> {alertas_activas} ({alertas_criticas} críticas)</p>",
-            f"<h3>Vencimientos esta semana ({len(vencimientos_semana)})</h3>",
-        ]
+            if vencimientos_semana:
+                lineas.append("<ul>")
+                for v, c in vencimientos_semana[:20]:
+                    dias = (v.fecha_vencimiento - hoy).days
+                    lineas.append(f"<li>{v.tipo.value} — {c.nombre} ({v.fecha_vencimiento.strftime('%d/%m')} — {dias}d)</li>")
+                lineas.append("</ul>")
+            else:
+                lineas.append("<p>Sin vencimientos pendientes esta semana.</p>")
 
-        if vencimientos_semana:
-            lineas.append("<ul>")
-            for v, c in vencimientos_semana[:20]:
-                dias = (v.fecha_vencimiento - hoy).days
-                lineas.append(f"<li>{v.tipo.value} — {c.nombre} ({v.fecha_vencimiento.strftime('%d/%m')} — {dias}d)</li>")
-            lineas.append("</ul>")
-        else:
-            lineas.append("<p>Sin vencimientos pendientes esta semana.</p>")
+            cuerpo = "\n".join(lineas)
+            asunto = f"PyME OS — Resumen semanal ({hoy.strftime('%d/%m/%Y')})"
 
-        cuerpo = "\n".join(lineas)
-        asunto = f"PyME OS — Resumen semanal ({hoy.strftime('%d/%m/%Y')})"
+            try:
+                _enviar_email(dueno.email, asunto, cuerpo)
+                from models.email_log import EmailLog
+                db.add(EmailLog(
+                    recipient_type="studio",
+                    recipient_email=dueno.email,
+                    email_type="resumen_semanal",
+                    subject=asunto,
+                    status="sent",
+                ))
+                db.commit()
+                logger.info("Job resumen semanal — email enviado a %s (studio %d)", dueno.email, studio_id)
+                emails_enviados += 1
+            except Exception as e:
+                logger.error("Job resumen semanal — error enviando email a %s: %s", dueno.email, e)
 
-        try:
-            _enviar_email(dueno.email, asunto, cuerpo)
-
-            # Registrar en email_log
-            from models.email_log import EmailLog
-            db.add(EmailLog(
-                recipient_type="studio",
-                recipient_email=dueno.email,
-                email_type="resumen_semanal",
-                subject=asunto,
-                status="sent",
-            ))
-            db.commit()
-            logger.info("Job resumen semanal — email enviado a %s", dueno.email)
-        except Exception as e:
-            logger.error("Job resumen semanal — error enviando email: %s", e)
+        logger.info("Job resumen semanal — finalizado, %d emails enviados", emails_enviados)
 
     except Exception as e:
         logger.error("Job resumen semanal — error general: %s", e)
