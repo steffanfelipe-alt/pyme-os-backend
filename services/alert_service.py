@@ -5,7 +5,7 @@ from fastapi import HTTPException
 from sqlalchemy.orm import Session
 
 from models.alerta import AlertaVencimiento, DocumentoRequerido
-from models.documento import Documento
+from models.documento import Documento, EstadoDocumento
 from models.vencimiento import EstadoVencimiento, Vencimiento
 
 logger = logging.getLogger("pymeos")
@@ -551,7 +551,7 @@ def generar_alertas_riesgo(db: Session, studio_id: int, umbral: int = 70) -> int
         ).all()
 
         for cliente in clientes:
-            score = getattr(cliente, "score_riesgo", None)
+            score = getattr(cliente, "risk_score", None)  # FIX: was "score_riesgo" (non-existent field)
             if score is None or score < umbral:
                 continue
 
@@ -642,7 +642,7 @@ def generar_alertas_documentacion(db: Session, studio_id: int, dias_anticipacion
     try:
         from models.cliente import Cliente
         from models.vencimiento import Vencimiento, EstadoVencimiento
-        from models.documento import Documento
+        from models.documento import Documento, EstadoDocumento
 
         hoy = date.today()
         from datetime import timedelta
@@ -663,7 +663,7 @@ def generar_alertas_documentacion(db: Session, studio_id: int, dias_anticipacion
                 Documento.cliente_id == venc.cliente_id,
                 Documento.activo == True,
             ).filter(
-                Documento.estado_clasificacion.in_(["pendiente", "procesando"])
+                Documento.estado.in_([EstadoDocumento.pendiente, EstadoDocumento.requiere_revision])  # FIX: was estado_clasificacion with non-existent values
             ).count()
 
             if docs_pendientes == 0:
