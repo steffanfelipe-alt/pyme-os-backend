@@ -1,3 +1,4 @@
+from datetime import date
 from typing import Optional
 
 from fastapi import APIRouter, Depends
@@ -98,7 +99,7 @@ def crear_tarea_desde_vencimiento(
     from models.tarea import TipoTarea, PrioridadTarea
 
     venc = vencimiento_service.obtener_vencimiento(db, vencimiento_id, studio_id)
-    dias = (venc.fecha_vencimiento - __import__("datetime").date.today()).days
+    dias = (venc.fecha_vencimiento - date.today()).days
     prioridad = PrioridadTarea.urgente if dias <= 3 else PrioridadTarea.alta if dias <= 7 else PrioridadTarea.normal
 
     tarea_data = TareaCreate(
