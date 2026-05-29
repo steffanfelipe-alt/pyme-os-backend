@@ -180,15 +180,19 @@ def _calcular_dashboard(db: Session, contador_id: Optional[int], hoy: date, ahor
             ))
 
     # 3. Tareas retrasadas
+    filtros_tareas = [
+        Tarea.estado.in_([EstadoTarea.pendiente, EstadoTarea.en_progreso]),
+        Tarea.fecha_limite < hoy,
+        Tarea.activo == True,
+    ]
+    if studio_id is not None:
+        filtros_tareas.append(Tarea.studio_id == studio_id)
+
     tareas_ret_rows = (
         db.query(Tarea, Cliente, Empleado)
         .outerjoin(Cliente, Tarea.cliente_id == Cliente.id)
         .outerjoin(Empleado, Tarea.empleado_id == Empleado.id)
-        .filter(
-            Tarea.estado.in_([EstadoTarea.pendiente, EstadoTarea.en_progreso]),
-            Tarea.fecha_limite < hoy,
-            Tarea.activo == True,
-        )
+        .filter(*filtros_tareas)
         .order_by(Tarea.fecha_limite)
         .all()
     )

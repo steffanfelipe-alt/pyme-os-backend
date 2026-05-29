@@ -1,5 +1,5 @@
 import logging
-from datetime import date, datetime
+from datetime import date, datetime, timezone
 
 from fastapi import HTTPException
 from sqlalchemy.orm import Session
@@ -15,11 +15,14 @@ logger = logging.getLogger("pymeos")
 _UMBRAL_DIAS_DEFAULT = 5
 
 
-def _get_umbral_dias(db: Session) -> int:
-    """Lee umbral_dias_notificacion de StudioConfig o usa el default de 5."""
+def _get_umbral_dias(db: Session, studio_id: int = None) -> int:
+    """Lee umbral_dias_notificacion de StudioConfig del studio indicado o usa el default de 5."""
     try:
         from models.studio_config import StudioConfig
-        cfg = db.query(StudioConfig).first()
+        query = db.query(StudioConfig)
+        if studio_id is not None:
+            query = query.filter(StudioConfig.studio_id == studio_id)
+        cfg = query.first()
         if cfg and cfg.umbral_dias_notificacion:
             return int(cfg.umbral_dias_notificacion)
     except Exception:
@@ -107,7 +110,7 @@ def generar_alertas(db: Session, studio_id: int) -> list[dict]:
     caen dentro del umbral configurado. Retorna la lista de alertas generadas/actualizadas.
     """
     hoy = date.today()
-    umbral = _get_umbral_dias(db)
+    umbral = _get_umbral_dias(db, studio_id)
 
     vencimientos = db.query(Vencimiento).filter(
         Vencimiento.studio_id == studio_id,
@@ -171,7 +174,7 @@ def generar_alertas(db: Session, studio_id: int) -> list[dict]:
 
         # Notificar via Telegram si hay canal activo y aún no se envió
         if nivel == "critica" and not alerta.sent_via_telegram:
-            _intentar_notificar_telegram(db, alerta, venc)
+            _intentar_notificar_telegram(db, alerta, venc, studio_id)
 
         generadas.append({
             "vencimiento_id": venc.id,
@@ -186,14 +189,17 @@ def generar_alertas(db: Session, studio_id: int) -> list[dict]:
     return generadas
 
 
-def _intentar_notificar_telegram(db: Session, alerta: "AlertaVencimiento", venc) -> None:
+def _intentar_notificar_telegram(db: Session, alerta: "AlertaVencimiento", venc, studio_id: int = None) -> None:
     """Envía alerta crítica por Telegram si el estudio tiene el canal activo."""
     try:
         from models.cliente import Cliente
         from models.studio_config import StudioConfig
         from modules.asistente.notificador import enviar_alerta_vencimiento_telegram
 
-        config = db.query(StudioConfig).first()
+        query = db.query(StudioConfig)
+        if studio_id is not None:
+            query = query.filter(StudioConfig.studio_id == studio_id)
+        config = query.first()
         if not config or not config.telegram_active or not config.telegram_chat_id:
             return
 
@@ -210,7 +216,7 @@ def _intentar_notificar_telegram(db: Session, alerta: "AlertaVencimiento", venc)
             alerta.id,
         )
         alerta.sent_via_telegram = True
-        alerta.telegram_sent_at = datetime.utcnow()
+        alerta.telegram_sent_at = datetime.now(timezone.utc)
     except Exception as e:
         logger.warning("No se pudo enviar alerta Telegram: %s", e)
 
@@ -297,7 +303,7 @@ def resolver_alerta(db: Session, alerta_id: int, studio_id: int) -> dict:
     ).first()
     if not alerta:
         raise HTTPException(status_code=404, detail="Alerta no encontrada")
-    alerta.resuelta_at = datetime.utcnow()
+    alerta.resuelta_at = datetime.now(timezone.utc)
     db.commit()
     return {"id": alerta.id, "resuelta_at": alerta.resuelta_at.isoformat()}
 
@@ -308,7 +314,7 @@ def ignorar_alerta(db: Session, alerta_id: int, studio_id: int) -> dict:
     ).first()
     if not alerta:
         raise HTTPException(status_code=404, detail="Alerta no encontrada")
-    alerta.ignorada_at = datetime.utcnow()
+    alerta.ignorada_at = datetime.now(timezone.utc)
     db.commit()
     return {"id": alerta.id, "ignorada_at": alerta.ignorada_at.isoformat()}
 
@@ -397,7 +403,7 @@ def crear_alerta_manual(db: Session, studio_id: int, data: dict) -> dict:
         try:
             _enviar_alerta_manual_email(db, alerta, studio_id)
             alerta.sent_via_email = True
-            alerta.email_sent_at = datetime.utcnow()
+            alerta.email_sent_at = datetime.now(timezone.utc)
         except Exception as e:
             logger.warning("No se pudo enviar alerta manual por email: %s", e)
 
@@ -412,7 +418,7 @@ def crear_alerta_manual(db: Session, studio_id: int, data: dict) -> dict:
         )
         db.add(notif)
         alerta.sent_via_portal = True
-        alerta.portal_sent_at = datetime.utcnow()
+        alerta.portal_sent_at = datetime.now(timezone.utc)
 
     db.commit()
     db.refresh(alerta)
