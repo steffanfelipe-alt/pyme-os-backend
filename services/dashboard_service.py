@@ -1,5 +1,5 @@
 import logging
-from datetime import date, datetime, timedelta
+from datetime import date, datetime, timedelta, timezone
 from typing import Optional
 
 from sqlalchemy import and_, case, func, select
@@ -55,14 +55,14 @@ def _color_carga(pct: float) -> str:
 
 def obtener_dashboard(db: Session, contador_id: Optional[int] = None, studio_id: int = None) -> DashboardResponse:  # noqa: C901
     hoy = date.today()
-    ahora = datetime.now()
+    ahora = datetime.now(timezone.utc)
     try:
         return _calcular_dashboard(db, contador_id, hoy, ahora, studio_id)
     except Exception as exc:
         logger.error("Error generando dashboard: %s", exc, exc_info=True)
         return DashboardResponse(
             bloque_riesgo=BloqueRiesgo(
-                vencimientos_sin_doc=[],
+                vencimientos_sin_docs=[],
                 clientes_sin_actividad=[],
                 tareas_retrasadas=[],
                 alertas_activas=ResumenAlertas(criticas=0, advertencias=0, informativas=0),
@@ -70,7 +70,7 @@ def obtener_dashboard(db: Session, contador_id: Optional[int] = None, studio_id:
             bloque_carga=BloqueCarga(
                 carga_por_contador=[],
                 completadas_a_tiempo=CompletadasATiempo(total_pct=0.0, mes_anterior_pct=None),
-                tiempo_promedio_por_tipo=[],
+                tiempo_promedio_resolucion=[],
                 indice_concentracion=IndiceConcentracion(alerta=False, top_contador_pct=0.0, mensaje=None),
             ),
             bloque_salud=BloqueSalud(

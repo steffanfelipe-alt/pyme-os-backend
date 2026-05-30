@@ -278,8 +278,8 @@ async def subir_documento(
                 AlertaVencimiento.resuelta_at == None,
             ).all()
             for alerta in alertas_abiertas:
-                from datetime import datetime
-                alerta.resuelta_at = datetime.utcnow()
+                from datetime import datetime, timezone
+                alerta.resuelta_at = datetime.now(timezone.utc)
             if alertas_abiertas:
                 db.commit()
                 logger.info(

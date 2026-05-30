@@ -75,7 +75,7 @@ def _validar_telegram_request(request: Request) -> None:
 def _get_wizard(db: Session, telegram_user_id: str) -> AsistenteSesionWizard | None:
     return db.query(AsistenteSesionWizard).filter(
         AsistenteSesionWizard.telegram_user_id == telegram_user_id,
-        AsistenteSesionWizard.expira_at >= datetime.utcnow(),
+        AsistenteSesionWizard.expira_at >= datetime.now(timezone.utc),
     ).first()
 
 
@@ -93,7 +93,7 @@ def _start_wizard(db: Session, telegram_user_id: str, comando: str) -> Asistente
         comando=comando,
         paso_actual=0,
         datos_parciales={},
-        expira_at=datetime.utcnow() + timedelta(minutes=15),
+        expira_at=datetime.now(timezone.utc) + timedelta(minutes=15),
     )
     db.add(wizard)
     db.commit()
