@@ -4,7 +4,7 @@ CRUD + generación con IA + integración con automatizaciones.
 """
 import json
 import logging
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from typing import Optional
 
 import anthropic
@@ -40,7 +40,7 @@ def _limpiar_json(raw: str) -> dict:
     return json.loads(raw)
 
 
-# ─── CRUD básico ──────────────────────────────────────────────────────────────
+# ─── CRUD básico ──────────────────────────────────────────────────────────────────────────────
 
 def crear_sop(db: Session, data: SopDocumentoCreate, empleado_id: Optional[int], studio_id: int = None) -> SopDocumento:
     sop = SopDocumento(
@@ -206,7 +206,7 @@ def publicar_sop(db: Session, sop_id: int, empleado_id: Optional[int]) -> SopDoc
     if sop.estado == EstadoSop.activo:
         raise HTTPException(status_code=400, detail="El SOP ya está activo")
     sop.estado = EstadoSop.activo
-    ahora = datetime.utcnow()
+    ahora = datetime.now(timezone.utc)
     sop.fecha_ultima_revision = ahora
 
     revision = SopRevision(
@@ -230,7 +230,7 @@ def archivar_sop(db: Session, sop_id: int) -> SopDocumento:
     return sop
 
 
-# ─── Generación asistida por IA ───────────────────────────────────────────────
+# ─── Generación asistida por IA ───────────────────────────────────────────────────────────────
 
 async def generar_sop_desde_descripcion(
     db: Session,
@@ -249,7 +249,7 @@ async def generar_sop_desde_descripcion(
         f'"responsable_sugerido": string o null, '
         f'"tiempo_estimado_minutos": number o null, '
         f'"es_automatizable": boolean}}]'
-        f'}}. Mantené los pasos simples y accionables. No inventes información que no esté en la descripción.'
+        f'}}. Manté los pasos simples y accionables. No inventes información que no esté en la descripción.'
         f'\n\nDescripción del proceso:\n{descripcion}'
     )
 
@@ -299,7 +299,7 @@ async def generar_sop_desde_descripcion(
     return crear_sop(db, doc_data, empleado_id, studio_id)
 
 
-# ─── Integración con automatizaciones ─────────────────────────────────────────
+# ─── Integración con automatizaciones ───────────────────────────────────────────────────────────────
 
 async def generar_automatizacion_desde_sop(db: Session, sop_id: int) -> Automatizacion:
     sop = obtener_sop(db, sop_id)
@@ -371,7 +371,7 @@ async def generar_automatizacion_desde_sop(db: Session, sop_id: int) -> Automati
     return aut
 
 
-# ─── Biblioteca ───────────────────────────────────────────────────────────────
+# ─── Biblioteca ───────────────────────────────────────────────────────────────────────────────
 
 def listar_biblioteca(db: Session, studio_id: int = None) -> list[dict]:
     from models.empleado import Empleado
@@ -431,7 +431,7 @@ def listar_biblioteca(db: Session, studio_id: int = None) -> list[dict]:
     return resultado
 
 
-# ─── Confirmación de lectura ──────────────────────────────────────────────────
+# ─── Confirmación de lectura ────────────────────────────────────────────────────────────────
 
 def confirmar_lectura(
     db: Session,
@@ -449,7 +449,7 @@ def confirmar_lectura(
         return {"confirmado": True, "mensaje": "Este paso no requiere confirmación de lectura", "requiere_confirmacion": False}
 
     # Verificar si ya existe confirmación reciente (últimos 30 días)
-    hace_30_dias = datetime.utcnow() - timedelta(days=30)
+    hace_30_dias = datetime.now(timezone.utc) - timedelta(days=30)
     confirmacion_reciente = (
         db.query(SopConfirmacionLectura)
         .filter(
@@ -467,7 +467,7 @@ def confirmar_lectura(
         sop_paso_id=paso_id,
         empleado_id=empleado_id,
         proceso_instancia_paso_id=proceso_instancia_paso_id,
-        fecha_confirmacion=datetime.utcnow(),
+        fecha_confirmacion=datetime.now(timezone.utc),
     )
     db.add(confirmacion)
     db.commit()
@@ -480,7 +480,7 @@ def verificar_confirmacion_lectura(
     empleado_id: int,
 ) -> bool:
     """Retorna True si el empleado tiene confirmación de lectura vigente (últimos 30 días)."""
-    hace_30_dias = datetime.utcnow() - timedelta(days=30)
+    hace_30_dias = datetime.now(timezone.utc) - timedelta(days=30)
     return db.query(SopConfirmacionLectura).filter(
         SopConfirmacionLectura.sop_paso_id == sop_paso_id,
         SopConfirmacionLectura.empleado_id == empleado_id,

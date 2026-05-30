@@ -45,7 +45,7 @@ def template_b1(db, headers, client):
     return resp.json()
 
 
-# ─── 1.1 Umbral configurable ─────────────────────────────────────────────────
+# ─── 1.1 Umbral configurable ────────────────────────────────────────────────────────────────
 
 def test_umbral_por_defecto_es_5(client, db, headers):
     """El umbral por defecto debe ser 5."""
@@ -125,7 +125,7 @@ def test_umbral_personalizado_activa_recalculo_con_menos_instancias(client, db, 
     )
 
     tid = template_b1["id"]
-    from datetime import datetime, timedelta
+    from datetime import datetime, timedelta, timezone
 
     # Crear 3 instancias completadas manualmente en la DB
     studio_id = _get_or_create_studio(db)
@@ -134,8 +134,8 @@ def test_umbral_personalizado_activa_recalculo_con_menos_instancias(client, db, 
             template_id=tid,
             studio_id=studio_id,
             estado=EstadoInstancia.completado,
-            fecha_inicio=datetime.utcnow() - timedelta(hours=2),
-            fecha_fin=datetime.utcnow(),
+            fecha_inicio=datetime.now(timezone.utc) - timedelta(hours=2),
+            fecha_fin=datetime.now(timezone.utc),
         )
         db.add(inst)
     db.commit()
@@ -156,7 +156,7 @@ def test_umbral_personalizado_activa_recalculo_con_menos_instancias(client, db, 
     assert template.tiempo_estimado_minutos is not None
 
 
-# ─── 1.2 Ciclo de vida automatizaciones ──────────────────────────────────────
+# ─── 1.2 Ciclo de vida automatizaciones ──────────────────────────────────────────────────
 
 _ANALISIS_MOCK = {
     "resumen": "Proceso con pasos automatizables",
@@ -288,7 +288,7 @@ def test_aprobada_no_aparece_en_pendientes(client, db, headers, template_b1):
     assert all(a["id"] != aut["id"] for a in pendientes)
 
 
-# ─── 1.3 Vinculación Tarea → PasoInstancia ───────────────────────────────────
+# ─── 1.3 Vinculación Tarea → PasoInstancia ──────────────────────────────────────────────
 
 def test_crear_tarea_vinculada_a_paso_instancia(db, cliente_test, template_b1):
     """Tarea puede ser creada con proceso_instancia_paso_id (FK nullable)."""
