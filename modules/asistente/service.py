@@ -4,7 +4,7 @@ Resuelve usuario → construye contexto → interpreta → ejecuta → responde.
 La desambiguación ocurre ANTES de llamar a Claude.
 """
 import logging
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 
 from sqlalchemy.orm import Session
 
@@ -151,7 +151,7 @@ async def procesar_mensaje(db: Session, mensaje: MensajeEntrante) -> MensajeProc
                 usuario_id=usuario_id,
                 canal=mensaje.canal,
                 operacion=resultado["operacion_a_confirmar"],
-                expira_at=datetime.utcnow() + timedelta(minutes=5),
+                expira_at=datetime.now(timezone.utc) + timedelta(minutes=5),
                 confirmado=None,
             )
             db.add(conf)
@@ -220,7 +220,7 @@ def procesar_confirmacion(db: Session, confirmacion_id: int, confirmado: bool) -
     conf = db.query(AsistenteConfirmacionPendiente).filter(
         AsistenteConfirmacionPendiente.id == confirmacion_id,
         AsistenteConfirmacionPendiente.confirmado == None,
-        AsistenteConfirmacionPendiente.expira_at >= datetime.utcnow(),
+        AsistenteConfirmacionPendiente.expira_at >= datetime.now(timezone.utc),
     ).first()
 
     if not conf:
