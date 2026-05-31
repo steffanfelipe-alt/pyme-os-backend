@@ -2,6 +2,7 @@
 Servicio de negocio para Facturación Electrónica.
 Orquesta validaciones, emisión ARCA, PDF y persistencia.
 """
+import base64
 import logging
 import os
 from datetime import date, datetime, timezone
@@ -113,8 +114,6 @@ def obtener_config_arca(studio_id: int, db: Session) -> dict:
 
 
 # ─── Comprobantes ─────────────────────────────────────────────────────────────
-
-import base64
 
 
 def listar_comprobantes(

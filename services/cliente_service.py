@@ -409,20 +409,21 @@ def obtener_ficha_cliente(db: Session, cliente_id: int, studio_id: int) -> Ficha
             abono_data = {
                 "id": abono.id,
                 "monto": float(abono.monto or 0),
-                "estado": abono.estado.value if hasattr(abono.estado, "value") else str(abono.estado),
-                "cobro_actual": {
-                    "id": cobro_actual.id,
-                    "periodo": getattr(cobro_actual, "periodo", ""),
-                    "estado": cobro_actual.estado.value if hasattr(cobro_actual.estado, "value") else str(cobro_actual.estado),
-                    "fecha_vencimiento": cobro_actual.fecha_vencimiento.isoformat() if getattr(cobro_actual, "fecha_vencimiento", None) else None,
-                } if cobro_actual else None,
+                "estado": (
+                    cobro_actual.estado.value
+                    if cobro_actual and hasattr(cobro_actual.estado, "value")
+                    else ("activo" if abono.activo else "inactivo")
+                ),
+                "periodo": cobro_actual.fecha_cobro.strftime("%Y-%m") if cobro_actual and cobro_actual.fecha_cobro else "",
+                "fecha_vencimiento": cobro_actual.fecha_cobro.isoformat() if cobro_actual and cobro_actual.fecha_cobro else None,
             }
             historial_cobros = [
                 {
-                    "periodo": getattr(c, "periodo", ""),
+                    "id": c.id,
                     "monto": float(c.monto or 0),
+                    "fecha_cobro": c.fecha_cobro.isoformat() if c.fecha_cobro else None,
+                    "medio_pago": None,
                     "estado": c.estado.value if hasattr(c.estado, "value") else str(c.estado),
-                    "fecha_cobro": c.fecha_cobro.isoformat() if getattr(c, "fecha_cobro", None) else None,
                 }
                 for c in cobros
             ]
@@ -446,11 +447,9 @@ def obtener_ficha_cliente(db: Session, cliente_id: int, studio_id: int) -> Ficha
                 PortalNotificacion.leida == False,
             ).count()
             portal_data = {
-                "usuario_activo": pu.activo,
-                "email_portal": pu.email,
-                "tareas_portal_pendientes": tareas_portal,
-                "notificaciones_pendientes": notifs_pendientes,
-                "ultimo_acceso": pu.ultimo_acceso.isoformat() if pu.ultimo_acceso else None,
+                "tiene_acceso": pu.activo,
+                "email": pu.email,
+                "ultimo_login": pu.ultimo_acceso.isoformat() if pu.ultimo_acceso else None,
             }
     except Exception:
         pass
@@ -461,7 +460,7 @@ def obtener_ficha_cliente(db: Session, cliente_id: int, studio_id: int) -> Ficha
         cobro_estado = abono_data["cobro_actual"].get("estado", "sin_abono")
 
     resumen = {
-        "score_riesgo": getattr(cliente, "score_riesgo", None),
+        "score_riesgo": getattr(cliente, "risk_score", None),
         "alertas_activas": len(alertas_activas),
         "vencimientos_proximos_7_dias": sum(1 for v in proximos if 0 <= v.dias_para_vencer <= 7),
         "tareas_pendientes": len(activas),
