@@ -85,7 +85,7 @@ def completar_oauth(code: str, redirect_uri: str, studio_email: str, db: Session
     return config
 
 
-def _get_credentials(config: GmailConfig) -> Credentials:
+def _get_credentials(config: GmailConfig, db: "Session | None" = None) -> Credentials:
     """Reconstruye Credentials y refresca el access_token si expiró."""
     creds = Credentials(
         token=_decrypt(config.access_token_enc),
@@ -99,6 +99,9 @@ def _get_credentials(config: GmailConfig) -> Credentials:
         creds.refresh(Request())
         config.access_token_enc = _encrypt(creds.token)
         config.token_expiry = creds.expiry
+        if db is not None:
+            db.add(config)
+            db.commit()
 
     return creds
 
@@ -109,7 +112,7 @@ def _get_credentials(config: GmailConfig) -> Credentials:
 
 def configurar_watch(config: GmailConfig, db: Session) -> None:
     """Registra (o renueva) el watch de Gmail para recibir notificaciones vía Pub/Sub."""
-    creds = _get_credentials(config)
+    creds = _get_credentials(config, db)
     service = build("gmail", "v1", credentials=creds)
 
     topic = os.environ.get("GMAIL_PUBSUB_TOPIC", "")
@@ -238,7 +241,7 @@ def _parsear_fecha(fecha_str: str) -> datetime:
     try:
         return parsedate_to_datetime(fecha_str).replace(tzinfo=None)
     except Exception:
-        return datetime.utcnow()
+        return datetime.now(timezone.utc).replace(tzinfo=None)
 
 
 # ---------------------------------------------------------------------------

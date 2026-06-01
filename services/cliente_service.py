@@ -32,10 +32,12 @@ def _calcular_estado_alerta(
     tiene_vencidos: bool,
     tareas_pendientes: int,
 ) -> EstadoAlerta:
-    if proximo_vencimiento is None and tareas_pendientes == 0:
-        return EstadoAlerta.sin_datos
+    # tiene_vencidos debe evaluarse primero: un cliente puede no tener vencimientos
+    # futuros pero sí tener vencidos, y debe clasificarse como rojo
     if tiene_vencidos:
         return EstadoAlerta.rojo
+    if proximo_vencimiento is None and tareas_pendientes == 0:
+        return EstadoAlerta.sin_datos
     if proximo_vencimiento is not None:
         dias = (proximo_vencimiento - date.today()).days
         if dias <= UMBRAL_AMARILLO_DIAS:
@@ -154,12 +156,19 @@ def listar_clientes(
             Cliente.nombre.ilike(like) | Cliente.cuit_cuil.ilike(like)
         )
 
-    rows = query.add_columns(
+    query_with_cols = query.add_columns(
         sq_proximo.c.proximo_vencimiento,
         sq_vencidos.c.cliente_id.label("tiene_vencidos"),
         func.coalesce(sq_tareas.c.tareas_pendientes, 0).label("tareas_pendientes"),
         func.greatest(sq_act_tareas.c.ultima, sq_act_venc.c.ultima).label("ultima_actividad"),
-    ).offset(skip).limit(limit).all()
+    )
+
+    # Cuando se filtra por estado_alerta en Python, no aplicar paginación a nivel DB
+    # para evitar retornar menos filas que las solicitadas
+    if estado_alerta is not None:
+        rows = query_with_cols.all()
+    else:
+        rows = query_with_cols.offset(skip).limit(limit).all()
 
     resultados = []
     for row in rows:
@@ -187,6 +196,10 @@ def listar_clientes(
             ultima_actividad=ultima_actividad,
             estado_alerta=alerta,
         ))
+
+    # Aplicar paginación post-filtro cuando se usó estado_alerta
+    if estado_alerta is not None:
+        resultados = resultados[skip: skip + limit]
 
     return resultados
 
@@ -374,7 +387,7 @@ def obtener_ficha_cliente(db: Session, cliente_id: int, studio_id: int) -> Ficha
 
     documentos = documento_service.listar_documentos(db, cliente_id)
 
-    # ── Nuevos campos del spec Ficha del Cliente ──────────────────────────────
+    # ── Nuevos campos del spec Ficha del Cliente ─────────────────────────────────────────
     # Alertas activas
     from models.alerta import AlertaVencimiento
     alertas_db = db.query(AlertaVencimiento).filter(
