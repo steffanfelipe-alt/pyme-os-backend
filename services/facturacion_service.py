@@ -159,7 +159,7 @@ def emitir_comprobante(studio_id: int, data: ComprobanteCreate, db: Session) -> 
 
     tipo_int = arca_service.tipo_cbte_a_int(data.tipo_comprobante)
 
-    # Crear registro en estado pendiente
+    # Crear registro en estado pendiente; flush para obtener ID sin confirmar la tx
     comp = Comprobante(
         studio_id=studio_id,
         cliente_id=data.cliente_id,
@@ -175,7 +175,7 @@ def emitir_comprobante(studio_id: int, data: ComprobanteCreate, db: Session) -> 
         estado="pendiente",
     )
     db.add(comp)
-    db.commit()
+    db.flush()  # Obtener ID sin commitear — el commit ocurre al final junto con el CAE
     db.refresh(comp)
 
     # Llamar a ARCA

@@ -71,7 +71,7 @@ def login_portal(data: LoginPortalRequest, db: Session = Depends(get_db)):
     if not usuario or not verify_password(data.password, usuario.password_hash):
         raise HTTPException(status_code=401, detail="Credenciales incorrectas")
 
-    usuario.ultimo_acceso = datetime.utcnow()
+    usuario.ultimo_acceso = datetime.now(timezone.utc)
     db.commit()
 
     cliente = db.query(Cliente).filter(Cliente.id == usuario.cliente_id).first()
@@ -115,7 +115,10 @@ def ficha_portal(
     cliente_id = portal_user["cliente_id"]
     studio_id = portal_user["studio_id"]
 
-    cliente = db.query(Cliente).filter(Cliente.id == cliente_id).first()
+    cliente = db.query(Cliente).filter(
+        Cliente.id == cliente_id,
+        Cliente.studio_id == studio_id,
+    ).first()
     if not cliente:
         raise HTTPException(status_code=404, detail="Cliente no encontrado")
 
@@ -127,6 +130,7 @@ def ficha_portal(
     hoy = date.today()
     vencimientos = db.query(Vencimiento).filter(
         Vencimiento.cliente_id == cliente_id,
+        Vencimiento.studio_id == studio_id,
         Vencimiento.estado == EstadoVencimiento.pendiente,
         Vencimiento.fecha_vencimiento >= hoy,
     ).order_by(Vencimiento.fecha_vencimiento).limit(5).all()
@@ -234,7 +238,7 @@ def marcar_leida(
     if not notif:
         raise HTTPException(status_code=404, detail="Notificación no encontrada")
     notif.leida = True
-    notif.leida_at = datetime.utcnow()
+    notif.leida_at = datetime.now(timezone.utc)
     db.commit()
     return {"ok": True}
 
@@ -247,7 +251,7 @@ def marcar_todas_leidas(
     db.query(PortalNotificacion).filter(
         PortalNotificacion.cliente_id == portal_user["cliente_id"],
         PortalNotificacion.leida == False,
-    ).update({"leida": True, "leida_at": datetime.utcnow()})
+    ).update({"leida": True, "leida_at": datetime.now(timezone.utc)})
     db.commit()
     return {"ok": True}
 
@@ -262,6 +266,7 @@ def vencimientos_portal(
     hoy = date.today()
     vencimientos = db.query(Vencimiento).filter(
         Vencimiento.cliente_id == portal_user["cliente_id"],
+        Vencimiento.studio_id == portal_user["studio_id"],
     ).order_by(Vencimiento.fecha_vencimiento).all()
 
     NOMBRES_SIMPLES = {

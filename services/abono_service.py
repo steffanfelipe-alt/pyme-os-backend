@@ -1,6 +1,7 @@
 """F1 + F2 — Gestión de abonos y cobros con alertas de cobranza."""
-from datetime import date, timedelta
+from datetime import date
 
+from dateutil.relativedelta import relativedelta
 from fastapi import HTTPException
 from sqlalchemy.orm import Session
 
@@ -10,17 +11,17 @@ from models.cliente import Cliente
 
 # ── helpers periodicidad ──────────────────────────────────────────────────────
 
-_DIAS_PERIODO = {
-    PeriodicidadAbono.mensual: 30,
-    PeriodicidadAbono.bimestral: 60,
-    PeriodicidadAbono.trimestral: 90,
-    PeriodicidadAbono.semestral: 180,
-    PeriodicidadAbono.anual: 365,
+_RELATIVEDELTA_PERIODO = {
+    PeriodicidadAbono.mensual: relativedelta(months=1),
+    PeriodicidadAbono.bimestral: relativedelta(months=2),
+    PeriodicidadAbono.trimestral: relativedelta(months=3),
+    PeriodicidadAbono.semestral: relativedelta(months=6),
+    PeriodicidadAbono.anual: relativedelta(years=1),
 }
 
 
 def _proximo_cobro(desde: date, periodicidad: PeriodicidadAbono) -> date:
-    return desde + timedelta(days=_DIAS_PERIODO[periodicidad])
+    return desde + _RELATIVEDELTA_PERIODO[periodicidad]
 
 
 # ── Abonos CRUD ───────────────────────────────────────────────────────────────
