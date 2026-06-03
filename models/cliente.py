@@ -51,6 +51,7 @@ class Cliente(Base):
         Integer, ForeignKey("empleados.id"), nullable=True
     )
     plantilla_aplicada: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
+    requiere_categoria: Mapped[bool | None] = mapped_column(Boolean, nullable=True, server_default="false")
     honorarios_mensuales: Mapped[Decimal | None] = mapped_column(Numeric(10, 2), nullable=True)
     satisfaccion: Mapped[int | None] = mapped_column(Integer, nullable=True)
     fecha_baja: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)

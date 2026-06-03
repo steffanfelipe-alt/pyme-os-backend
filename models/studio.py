@@ -78,6 +78,7 @@ class Studio(Base):
     portal_habilitado: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
     portal_url: Mapped[str | None] = mapped_column(Text, nullable=True)
     portal_texto_bienvenida: Mapped[str | None] = mapped_column(Text, nullable=True)
+    password_hash: Mapped[str | None] = mapped_column(String(255), nullable=True)
 
     # ── Sistema (Sección 11) ─────────────────────────────────────────────────
     claude_api_key_encrypted: Mapped[str | None] = mapped_column(Text, nullable=True)
