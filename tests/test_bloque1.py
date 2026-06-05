@@ -199,7 +199,7 @@ def _mock_anthropic(analisis=None, flujo=None):
 def _crear_automatizacion(client, headers, template_b1):
     tid = template_b1["id"]
     mock_client = _mock_anthropic()
-    with patch("services.optimizador_service.anthropic.AsyncAnthropic", return_value=mock_client):
+    with patch("services.optimizador_service.get_anthropic_client", return_value=mock_client):
         resp = client.post(
             "/api/automatizaciones/generar",
             json={"template_id": tid},

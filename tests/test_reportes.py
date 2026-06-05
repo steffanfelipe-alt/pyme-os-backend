@@ -115,11 +115,13 @@ def test_reporte_carga_sin_periodo_usa_mes_actual(client, headers_dueno):
 
 # ─── Reporte 2: Rentabilidad ─────────────────────────────────────────────────
 
-def test_rentabilidad_sin_tarifa_retorna_400(client, headers_dueno):
-    """Si no hay tarifa configurada, debe retornar 400 con mensaje descriptivo."""
+def test_rentabilidad_sin_tarifa_retorna_sin_configurar(client, headers_dueno):
+    """Sin tarifa configurada, retorna 200 con sin_configurar=True (empty state)."""
     resp = client.get(f"/api/reportes/rentabilidad?periodo={PERIODO_ACTUAL}", headers=headers_dueno)
-    assert resp.status_code == 400
-    assert "tarifa-hora" in resp.json()["detail"].lower()
+    assert resp.status_code == 200
+    data = resp.json()
+    assert data["sin_configurar"] is True
+    assert data["clientes"] == []
 
 
 def test_rentabilidad_con_tarifa(client, db, headers_dueno):
@@ -321,6 +323,7 @@ def test_export_carga_csv(client, headers_dueno):
 
 
 def test_export_rentabilidad_csv_sin_tarifa(client, headers_dueno):
-    """Sin tarifa configurada → 400 (igual que el endpoint JSON)."""
+    """Sin tarifa configurada → 200 con CSV vacío (sin filas de datos)."""
     resp = client.get(f"/api/reportes/rentabilidad/export.csv?periodo={PERIODO_ACTUAL}", headers=headers_dueno)
-    assert resp.status_code == 400
+    assert resp.status_code == 200
+    assert "text/csv" in resp.headers["content-type"]

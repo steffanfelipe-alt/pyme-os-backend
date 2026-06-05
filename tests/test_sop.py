@@ -203,7 +203,7 @@ def _mock_sop_anthropic(respuesta=None):
 def test_generar_sop_desde_descripcion(client, headers):
     """POST /sop/generar-desde-descripcion crea un SOP borrador con IA."""
     mock_client = _mock_sop_anthropic()
-    with patch("services.sop_asistido_service.anthropic.AsyncAnthropic", return_value=mock_client):
+    with patch("services.sop_asistido_service.get_anthropic_client", return_value=mock_client):
         resp = client.post("/api/sop/generar-desde-descripcion", json={
             "descripcion": "cada mes hay que bajar los comprobantes de AFIP y chequear que cuadren con las facturas emitidas"
         }, headers=headers)
@@ -229,7 +229,7 @@ def test_generar_sop_respuesta_invalida_de_ia_retorna_422(client, headers):
     msg.content = [MagicMock(text="Esto no es JSON válido")]
     mock_client.messages.create = AsyncMock(return_value=msg)
 
-    with patch("services.sop_asistido_service.anthropic.AsyncAnthropic", return_value=mock_client):
+    with patch("services.sop_asistido_service.get_anthropic_client", return_value=mock_client):
         resp = client.post("/api/sop/generar-desde-descripcion", json={
             "descripcion": "proceso de onboarding de clientes nuevos"
         }, headers=headers)
@@ -241,7 +241,7 @@ def test_generar_sop_respeta_area_de_request(client, headers):
     mock_data = dict(_SOP_IA_MOCK)
     mock_data["area"] = "laboral"
     mock_client = _mock_sop_anthropic(mock_data)
-    with patch("services.sop_asistido_service.anthropic.AsyncAnthropic", return_value=mock_client):
+    with patch("services.sop_asistido_service.get_anthropic_client", return_value=mock_client):
         resp = client.post("/api/sop/generar-desde-descripcion", json={
             "descripcion": "proceso de nómina mensual",
             "area": "laboral",

@@ -1,4 +1,9 @@
-def test_register_exitoso(client):
+def test_register_exitoso(client, db):
+    from models.empleado import Empleado, RolEmpleado
+    from tests.conftest import _get_or_create_studio
+    studio_id = _get_or_create_studio(db)
+    db.add(Empleado(nombre="Usuario Nuevo", email="nuevo@test.com", rol=RolEmpleado.contador, activo=True, studio_id=studio_id))
+    db.commit()
     response = client.post("/api/auth/register", json={
         "email": "nuevo@test.com",
         "password": "pass123",
@@ -8,14 +13,24 @@ def test_register_exitoso(client):
     assert "access_token" in response.json()
 
 
-def test_register_email_duplicado(client):
+def test_register_email_duplicado(client, db):
+    from models.empleado import Empleado, RolEmpleado
+    from tests.conftest import _get_or_create_studio
+    studio_id = _get_or_create_studio(db)
+    db.add(Empleado(nombre="A", email="dup@test.com", rol=RolEmpleado.contador, activo=True, studio_id=studio_id))
+    db.commit()
     datos = {"email": "dup@test.com", "password": "pass123", "nombre": "A"}
     client.post("/api/auth/register", json=datos)
     response = client.post("/api/auth/register", json=datos)
     assert response.status_code == 409
 
 
-def test_login_exitoso(client):
+def test_login_exitoso(client, db):
+    from models.empleado import Empleado, RolEmpleado
+    from tests.conftest import _get_or_create_studio
+    studio_id = _get_or_create_studio(db)
+    db.add(Empleado(nombre="B", email="login@test.com", rol=RolEmpleado.contador, activo=True, studio_id=studio_id))
+    db.commit()
     client.post("/api/auth/register", json={
         "email": "login@test.com", "password": "pass123", "nombre": "B"
     })
@@ -54,8 +69,10 @@ def test_forgot_password_genera_token(client, db):
     """Cuando el usuario existe, se genera un reset_token en la DB."""
     from models.usuario import Usuario
     from auth import hash_password
+    from tests.conftest import _get_or_create_studio
 
-    usuario = Usuario(email="reset@test.com", password_hash=hash_password("old123"), nombre="Test")
+    studio_id = _get_or_create_studio(db)
+    usuario = Usuario(email="reset@test.com", password_hash=hash_password("old123"), nombre="Test", studio_id=studio_id)
     db.add(usuario)
     db.commit()
     db.refresh(usuario)
@@ -74,7 +91,9 @@ def test_reset_password_exitoso(client, db):
     from datetime import datetime, timedelta, timezone
     from models.usuario import Usuario
     from auth import hash_password, verify_password
+    from tests.conftest import _get_or_create_studio
 
+    studio_id = _get_or_create_studio(db)
     token = secrets.token_urlsafe(32)
     usuario = Usuario(
         email="resetok@test.com",
@@ -82,6 +101,7 @@ def test_reset_password_exitoso(client, db):
         nombre="Reset Test",
         reset_token=token,
         reset_token_expires_at=datetime.now(timezone.utc) + timedelta(minutes=15),
+        studio_id=studio_id,
     )
     db.add(usuario)
     db.commit()
@@ -107,7 +127,9 @@ def test_reset_password_token_expirado(client, db):
     from datetime import datetime, timedelta, timezone
     from models.usuario import Usuario
     from auth import hash_password
+    from tests.conftest import _get_or_create_studio
 
+    studio_id = _get_or_create_studio(db)
     token = secrets.token_urlsafe(32)
     usuario = Usuario(
         email="expired@test.com",
@@ -115,6 +137,7 @@ def test_reset_password_token_expirado(client, db):
         nombre="Expired Test",
         reset_token=token,
         reset_token_expires_at=datetime.now(timezone.utc) - timedelta(minutes=1),
+        studio_id=studio_id,
     )
     db.add(usuario)
     db.commit()

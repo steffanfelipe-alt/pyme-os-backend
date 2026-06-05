@@ -266,10 +266,20 @@ PLANTILLAS_DEFAULT = [
 
 
 def seed_plantillas_default(db: Session) -> None:
-    cantidad = db.query(PlantillaVencimiento).count()
-    if cantidad > 0:
+    from models.studio import Studio
+    studios = db.query(Studio).all()
+    if not studios:
         return
-    for datos in PLANTILLAS_DEFAULT:
-        db.add(PlantillaVencimiento(**datos))
-    db.commit()
-    logger.info("Plantillas por defecto cargadas (%d)", len(PLANTILLAS_DEFAULT))
+    total_nuevas = 0
+    for studio in studios:
+        existentes = db.query(PlantillaVencimiento).filter(
+            PlantillaVencimiento.studio_id == studio.id
+        ).count()
+        if existentes > 0:
+            continue
+        for datos in PLANTILLAS_DEFAULT:
+            db.add(PlantillaVencimiento(**datos, studio_id=studio.id))
+        total_nuevas += len(PLANTILLAS_DEFAULT)
+    if total_nuevas:
+        db.commit()
+        logger.info("Plantillas por defecto cargadas (%d en %d estudios)", total_nuevas, len(studios))

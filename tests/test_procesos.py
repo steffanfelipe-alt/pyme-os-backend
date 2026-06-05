@@ -281,5 +281,6 @@ def test_conocimiento_sops_solo_con_sop(client, auth_headers):
     resp = client.get("/api/conocimiento/sops", headers=auth_headers)
     assert resp.status_code == 200
     ids_con_sop = [t["id"] for t in resp.json()]
-    assert tid_con_sop in ids_con_sop
-    assert tid_sin_sop not in ids_con_sop
+    # Templates con SOP generado vía sop_url se devuelven con id "template_{id}"
+    assert f"template_{tid_con_sop}" in ids_con_sop
+    assert f"template_{tid_sin_sop}" not in ids_con_sop
