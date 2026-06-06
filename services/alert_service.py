@@ -146,7 +146,7 @@ def generar_alertas(db: Session, studio_id: int) -> list[dict]:
         # Buscar alerta existente no resuelta para este vencimiento
         alerta = db.query(AlertaVencimiento).filter(
             AlertaVencimiento.vencimiento_id == venc.id,
-            AlertaVencimiento.resuelta_at == None,
+            AlertaVencimiento.resuelta_at.is_(None),
         ).first()
 
         if alerta:
@@ -225,7 +225,7 @@ def listar_alertas(db: Session, studio_id: int, nivel: str | None = None) -> lis
 
     query = db.query(AlertaVencimiento).filter(
         AlertaVencimiento.studio_id == studio_id,
-        AlertaVencimiento.resuelta_at == None,
+        AlertaVencimiento.resuelta_at.is_(None),
     )
     if nivel:
         query = query.filter(AlertaVencimiento.nivel == nivel)
@@ -271,7 +271,7 @@ def resumen_alertas(db: Session, studio_id: int) -> dict:
     """Conteo de alertas no resueltas por nivel."""
     alertas = db.query(AlertaVencimiento).filter(
         AlertaVencimiento.studio_id == studio_id,
-        AlertaVencimiento.resuelta_at == None,
+        AlertaVencimiento.resuelta_at.is_(None),
     ).all()
     return {
         "criticas": sum(1 for a in alertas if a.nivel == "critica"),

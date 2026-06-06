@@ -320,11 +320,22 @@ async def importar_clientes_csv(
 
     CATEGORIAS_VALIDAS = {"monotributista", "responsable_inscripto", "sociedad", "empleador", "otro"}
 
+    # Mapeo de categoria_fiscal CSV → condicion_fiscal del modelo
+    CATEGORIA_A_CONDICION = {
+        "monotributista": "monotributista",
+        "responsable_inscripto": "responsable_inscripto",
+        "sociedad": "responsable_inscripto",
+        "empleador": "responsable_inscripto",
+        "otro": "no_responsable",
+    }
+
     importados = 0
     saltados = 0
     sin_categoria = 0
     vencimientos_sugeridos = 0
     errores = []
+
+    from models.cliente import CondicionFiscal, TipoCliente, TipoPersona
 
     for i, fila in enumerate(reader, start=2):
         nombre = (fila.get("nombre") or "").strip()
@@ -336,7 +347,7 @@ async def importar_clientes_csv(
         # Verificar duplicado por CUIT
         existente = db.query(Cliente).filter(
             Cliente.studio_id == studio_id,
-            Cliente.cuit == cuit,
+            Cliente.cuit_cuil == cuit,
         ).first()
         if existente:
             saltados += 1
@@ -349,24 +360,31 @@ async def importar_clientes_csv(
         if requiere_cat:
             sin_categoria += 1
 
-        from models.cliente import TipoCliente, TipoPersona
+        condicion_fiscal_str = CATEGORIA_A_CONDICION.get(categoria or "", "no_responsable")
+        tipo_cliente_str = categoria if categoria in CATEGORIAS_VALIDAS else "otro"
+
+        try:
+            condicion_fiscal_val = CondicionFiscal(condicion_fiscal_str)
+            tipo_cliente_val = TipoCliente(tipo_cliente_str)
+        except ValueError:
+            condicion_fiscal_val = CondicionFiscal.no_responsable
+            tipo_cliente_val = TipoCliente.otro
+
         cliente = Cliente(
             studio_id=studio_id,
             nombre=nombre,
-            cuit=cuit,
+            cuit_cuil=cuit,
+            tipo_persona=TipoPersona.fisica,
+            condicion_fiscal=condicion_fiscal_val,
+            tipo_cliente=tipo_cliente_val,
             email=(fila.get("email") or "").strip() or None,
             telefono=(fila.get("telefono") or "").strip() or None,
             requiere_categoria=requiere_cat,
         )
-        if categoria:
-            try:
-                cliente.categoria_fiscal = categoria
-            except Exception:
-                pass
         db.add(cliente)
         db.flush()
 
-        if categoria and not requiere_cat:
+        if categoria:
             n = _sugerir_vencimientos(db, studio_id, cliente.id, categoria, cuit)
             vencimientos_sugeridos += n
 

@@ -63,6 +63,7 @@ class Cliente(Base):
         Enum(TipoCliente), default=TipoCliente.otro, server_default="otro", nullable=False
     )
     honorario_base: Mapped[Decimal] = mapped_column(Numeric(10, 2), default=0, server_default="0", nullable=False)
+    requiere_categoria: Mapped[bool] = mapped_column(Boolean, default=False, server_default="false", nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now(), nullable=False)
     updated_at: Mapped[datetime] = mapped_column(
         DateTime, server_default=func.now(), onupdate=func.now(), nullable=False
