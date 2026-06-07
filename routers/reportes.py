@@ -173,9 +173,10 @@ def exportar_vencimientos_csv(
     estado: Optional[EstadoVencimiento] = None,
     db: Session = Depends(get_db),
     current_user: dict = Depends(solo_dueno),
+    studio_id: int = Depends(get_studio_id),
 ):
     """Descarga vencimientos del período como CSV."""
-    data = reportes_service.reporte_vencimientos(db, periodo, estado)
+    data = reportes_service.reporte_vencimientos(db, periodo, estado, studio_id)
     vencimientos = data.get("vencimientos", [])
 
     output = io.StringIO()
@@ -206,9 +207,10 @@ def exportar_rentabilidad_csv(
     periodo: Optional[str] = None,
     db: Session = Depends(get_db),
     current_user: dict = Depends(solo_dueno),
+    studio_id: int = Depends(get_studio_id),
 ):
     """Descarga rentabilidad por cliente del período como CSV."""
-    data = reportes_service.reporte_rentabilidad(db, periodo)
+    data = reportes_service.reporte_rentabilidad(db, periodo, studio_id)
     clientes = data.get("clientes", [])
 
     output = io.StringIO()
@@ -239,9 +241,10 @@ def exportar_carga_csv(
     periodo: Optional[str] = None,
     db: Session = Depends(get_db),
     current_user: dict = Depends(solo_dueno),
+    studio_id: int = Depends(get_studio_id),
 ):
     """Descarga carga de trabajo por empleado del período como CSV."""
-    data = reportes_service.reporte_carga(db, periodo)
+    data = reportes_service.reporte_carga(db, periodo, studio_id)
     empleados = data.get("empleados", [])
 
     output = io.StringIO()
