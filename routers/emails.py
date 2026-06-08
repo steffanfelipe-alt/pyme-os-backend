@@ -43,6 +43,7 @@ class EmailResumen(BaseModel):
     asignado_a: Optional[int]
     cliente_id: Optional[int]
     fecha_recibido: datetime
+    borrador_aprobado: bool
 
     class Config:
         from_attributes = True
@@ -89,7 +90,8 @@ def listar_emails(
 ):
     """Lista emails del usuario según su rol. Máximo 200 por página."""
     limit = min(limit, 200)
-    query = db.query(EmailEntrante)
+    studio_id = current_user.get("studio_id")
+    query = db.query(EmailEntrante).filter(EmailEntrante.studio_id == studio_id)
     rol = current_user.get("rol")
 
     if rol == "contador":
@@ -100,7 +102,7 @@ def listar_emails(
         )
     elif rol == "administrativo":
         query = query.filter(EmailEntrante.urgencia.in_(["media", "baja"]))
-    # dueno: sin filtro adicional
+    # dueno: sin filtro adicional dentro del studio
 
     # Filtro especial: emails con borrador IA pendiente de aprobación
     if pendiente_aprobacion:
@@ -125,7 +127,7 @@ def obtener_email(
     current_user: dict = Depends(require_rol("dueno", "contador", "administrativo", "rrhh")),
 ):
     """Retorna el detalle y marca como leído."""
-    email = _get_email_o_404(email_id, db)
+    email = _get_email_o_404(email_id, current_user.get("studio_id"), db)
     if email.estado == "no_leido":
         email.estado = "leido"
         email.leido_at = datetime.utcnow()
@@ -140,7 +142,7 @@ def asignar_email(
     db: Session = Depends(get_db),
     current_user: dict = Depends(require_rol("dueno", "administrativo")),
 ):
-    email = _get_email_o_404(email_id, db)
+    email = _get_email_o_404(email_id, current_user.get("studio_id"), db)
     email.asignado_a = body.empleado_id
     db.commit()
     return {"ok": True}
@@ -152,7 +154,7 @@ def archivar_email(
     db: Session = Depends(get_db),
     current_user: dict = Depends(require_rol("dueno", "contador", "administrativo", "rrhh")),
 ):
-    email = _get_email_o_404(email_id, db)
+    email = _get_email_o_404(email_id, current_user.get("studio_id"), db)
     email.estado = "archivado"
     db.commit()
     return {"ok": True}
@@ -174,7 +176,7 @@ def cambiar_categoria(
     }
     if body.categoria not in CATEGORIAS_VALIDAS:
         raise HTTPException(status_code=400, detail=f"Categoría inválida. Válidas: {', '.join(CATEGORIAS_VALIDAS)}")
-    email = _get_email_o_404(email_id, db)
+    email = _get_email_o_404(email_id, current_user.get("studio_id"), db)
     email.categoria = body.categoria
     db.commit()
     return {"ok": True}
@@ -186,7 +188,7 @@ def marcar_spam(
     db: Session = Depends(get_db),
     current_user: dict = Depends(require_rol("dueno", "administrativo")),
 ):
-    email = _get_email_o_404(email_id, db)
+    email = _get_email_o_404(email_id, current_user.get("studio_id"), db)
     email.estado = "spam"
     db.commit()
     return {"ok": True}
@@ -204,7 +206,7 @@ def aprobar_respuesta(
     current_user: dict = Depends(require_rol("dueno", "contador", "administrativo")),
 ):
     """Aprueba y envía el borrador generado por la IA."""
-    email = _get_email_o_404(email_id, db)
+    email = _get_email_o_404(email_id, current_user.get("studio_id"), db)
 
     if not email.requiere_respuesta or not email.borrador_respuesta:
         raise HTTPException(status_code=400, detail="Este email no tiene borrador pendiente")
@@ -231,7 +233,7 @@ def editar_y_enviar_respuesta(
     current_user: dict = Depends(require_rol("dueno", "contador", "administrativo")),
 ):
     """Guarda el borrador editado y lo envía. Disponible incluso si requiere_revision_manual=True."""
-    email = _get_email_o_404(email_id, db)
+    email = _get_email_o_404(email_id, current_user.get("studio_id"), db)
 
     if not body.texto.strip():
         raise HTTPException(status_code=400, detail="El texto de la respuesta no puede estar vacío")
@@ -254,7 +256,7 @@ def respuesta_manual(
     current_user: dict = Depends(require_rol("dueno", "contador", "administrativo")),
 ):
     """Respuesta manual sin usar el borrador de la IA."""
-    email = _get_email_o_404(email_id, db)
+    email = _get_email_o_404(email_id, current_user.get("studio_id"), db)
 
     _enviar_respuesta_via_gmail(email, body.texto, db)
     email.estado = "respondido"
@@ -368,8 +370,11 @@ def desconectar_gmail(
 # ---------------------------------------------------------------------------
 
 
-def _get_email_o_404(email_id: int, db: Session) -> EmailEntrante:
-    email = db.query(EmailEntrante).filter(EmailEntrante.id == email_id).first()
+def _get_email_o_404(email_id: int, studio_id: Optional[int], db: Session) -> EmailEntrante:
+    email = db.query(EmailEntrante).filter(
+        EmailEntrante.id == email_id,
+        EmailEntrante.studio_id == studio_id,
+    ).first()
     if not email:
         raise HTTPException(status_code=404, detail="Email no encontrado")
     return email
@@ -427,8 +432,10 @@ async def _procesar_nuevos_emails(config: GmailConfig, history_id: str, db: Sess
             if msg_id:
                 message_ids.append(msg_id)
 
-    # Obtener clientes registrados para el clasificador
-    clientes = db.query(Cliente).filter(Cliente.activo == True).all()
+    # Obtener clientes registrados para el clasificador (scoped al studio)
+    clientes = db.query(Cliente).filter(
+        Cliente.activo == True, Cliente.studio_id == config.studio_id
+    ).all()
     lista_clientes = [{"nombre": c.nombre, "cuit_cuil": c.cuit_cuil} for c in clientes]
 
     for msg_id in message_ids:
@@ -444,6 +451,7 @@ async def _procesar_nuevos_emails(config: GmailConfig, history_id: str, db: Sess
             continue
 
         email = EmailEntrante(
+            studio_id=config.studio_id,
             remitente=datos["remitente"],
             asunto=datos["asunto"],
             cuerpo_texto=datos["cuerpo_texto"],

@@ -11,6 +11,9 @@ class EmailEntrante(Base):
     __tablename__ = "emails_entrantes"
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    studio_id: Mapped[int | None] = mapped_column(
+        Integer, ForeignKey("studios.id"), nullable=True, index=True
+    )
 
     # Datos del email original
     remitente: Mapped[str] = mapped_column(String(255), nullable=False)
